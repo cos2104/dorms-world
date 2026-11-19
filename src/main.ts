@@ -82,8 +82,9 @@ function packScreen(p: Pack, people = 4, review: Review | null = null) {
     : review?.others.length ? `이 요청에는 이 팩 말고 바뀐 파일이 ${review.others.length}개 있어요. 판을 고친 것은 여기서 돌지 않으니 세션에서 살펴봐 주세요.`
     : '팩 파일만 바뀐 요청이에요. 아래에서 직접 해 보고, 괜찮으면 승인하러 가서 병합 단추를 누르면 실려요.';
   const reviewBox = review ? `<div class="w-review" role="note">
-      <p class="w-review-line"><strong>요청 ${review.number}번을 살펴보는 중이에요.</strong> ${viaDorms ? '보낸 선생님' : '올린 사람'} @${esc(review.author)} · 살펴보는 판 ${esc(review.sha.slice(0, 7))}</p>
+      <p class="w-review-line"><strong>요청 ${review.number}번을 살펴보는 중이에요.</strong> ${viaDorms ? '보낸 선생님' : '올린 사람'} <span class="w-nick">@${esc(review.author)}</span> · 살펴보는 판 ${esc(review.sha.slice(0, 7))}</p>
       <p class="w-review-line">${esc(stateLine)}</p>
+      ${review.update ? `<p class="w-review-line"><strong>이미 실려 있는 팩을 고친 판이에요.</strong> 승인하면 실려 있는 ${esc(p.id)} 가 이 내용으로 통째로 바뀌어요.</p>` : ''}
       ${review.note ? `<p class="w-review-line">선생님 한마디: ${esc(review.note)}</p>` : ''}
       ${review.decisionNote && review.status === 'rejected' ? `<p class="w-review-line">돌려보내며 남긴 말: ${esc(review.decisionNote)}</p>` : ''}
       ${open && review.others.length ? `<p class="w-review-files">${review.others.slice(0, 8).map(esc).join(', ')}${review.others.length > 8 ? ' 등' : ''}</p>` : ''}

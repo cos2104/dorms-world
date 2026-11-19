@@ -6,7 +6,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-const ORIGIN = (process.env.DORMS_ORIGIN || 'https://dorms.school').replace(/\/+$/, '');
+// 비밀값이 가는 곳은 도름스 하나다. 시험할 때만(따로 켜서) 다른 주소를 쓴다
+const ORIGIN = process.env.DORMS_ORIGIN && process.env.DORMS_ALLOW_CUSTOM_ORIGIN === '1' ? process.env.DORMS_ORIGIN.replace(/\/+$/, '') : 'https://dorms.school';
 const SECRET = process.env.WORLD_PUBLISH_SECRET || '';
 const REPO = process.env.GITHUB_REPOSITORY || 'shinnanchanguk/dorms-world';
 const AUTHOR = process.env.PUBLISH_AUTHOR || '';   // "이름 <메일>". 배포가 막히지 않게 저장소 주인 이름으로 커밋하고, 만든 선생님은 커밋 글에 적는다
@@ -16,7 +17,9 @@ const MAX_FILE = 100_000, MAX_TOTAL = 300_000, MAX_COUNT = 120;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }).trim();
 const tryly = (cmd, args) => { try { return sh(cmd, args); } catch { return ''; } };
-const clean = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, max);
+const clean = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').trim().slice(0, max);
+// GitHub 글(커밋, 요청 본문)에 들어갈 남의 글: 멘션과 마크다운으로 읽힐 글자를 뺀다
+const label = (v, max) => clean(v, max * 2).replace(/[@`\[\]<>|*_#!\\]/g, '').trim().slice(0, max);
 export const shaOf = files => { const h = createHash('sha256'); for (const k of Object.keys(files).sort()) h.update(`${k}\0${files[k]}\0`); return h.digest('hex'); };
 
 /** 받은 항목이 실어도 되는 모양인지 본다. 문제가 있으면 까닭을 돌려준다(없으면 빈 글). */
@@ -88,24 +91,27 @@ async function waitDeploy(commit) {
 
 async function publish(item) {
   const [subject, pack] = item.packId.split('/'), dir = join('packs', subject, pack), branch = `pack/${subject}--${pack}`;
-  const title = clean(item.title, 60) || item.packId, who = clean(item.author, 30) || '도름스 선생님';
+  const title = label(item.title, 60) || item.packId, who = label(item.author, 30) || '도름스 선생님', no = Number(item.number) | 0;
   sh('git', ['fetch', '-q', 'origin', 'main']);
   sh('git', ['checkout', '-q', '-B', branch, 'origin/main']);
   const exists = existsSync(join(dir, 'pack.json'));
-  if (item.mode === 'create' && exists) return { result: 'failed', reason: `${item.packId} 는 이미 있는 팩 이름이에요. 폴더 이름을 바꿔 다시 보내 달라고 알려 주세요.` };
   if (item.mode === 'update' && !exists) return { result: 'failed', reason: `${item.packId} 를 고친 판인데 실려 있는 팩이 없어요.` };
   rmSync(dir, { recursive: true, force: true });
   for (const [name, body] of Object.entries(item.files)) { const to = join(dir, name); mkdirSync(dirname(to), { recursive: true }); writeFileSync(to, body); }
   // 만든 사람 사진은 팩에 넣지 않는다: 얼굴일 수 있는 사진을 공개 저장소 기록에 영영 남기지 않으려는 것이고, 운영자가 살펴본 판에도 들어 있지 않다
   sh('git', ['add', '-A', '--', dir]);
   if (!tryly('git', ['status', '--porcelain', '--', dir])) return { result: 'published', commit: sh('git', ['rev-parse', 'origin/main']), same: true };   // 이미 같은 내용이 실려 있다(지난번에 알리기만 실패)
-  const message = `${item.mode === 'create' ? 'Add' : 'Update'} pack ${item.packId} (request ${item.number})\n\n${title}\n만든 사람: ${who} (도름스)\n도름스 요청 ${item.number}번, ${item.revision}번째 판. 운영자가 살펴보고 승인함.`;
+  if (item.mode === 'create' && exists) { sh('git', ['reset', '-q', '--hard', 'origin/main']); return { result: 'failed', reason: `${item.packId} 는 이미 있는 팩 이름이에요. 폴더 이름을 바꿔 다시 보내 달라고 알려 주세요.` }; }
+  const message = `${item.mode === 'create' ? 'Add' : 'Update'} pack ${item.packId} (request ${no})\n\n${title}\n만든 사람: ${who} (도름스)\n도름스 요청 ${no}번, ${item.revision}번째 판. 운영자가 살펴보고 승인함.`;
   sh('git', ['-c', 'user.name=dorms-world', '-c', 'user.email=dorms-world@users.noreply.github.com', 'commit', '-q', ...(AUTHOR ? ['--author', AUTHOR] : []), '-m', message]);
   const head = sh('git', ['rev-parse', 'HEAD']);
   sh('git', ['push', '-q', '--force', 'origin', `${branch}:${branch}`]);
-  const body = `도름스에서 받은 요청 ${item.number}번이에요(${item.revision}번째 판).\n\n- 팩: \`${item.packId}\`\n- 만든 사람: ${who} (도름스)\n- 운영자가 도름스에서 직접 해 보고 승인했어요.\n\n이 요청은 '승인된 팩 싣기' 작업이 자동으로 열었고, 검사를 통과하면 자동으로 병합해요.`;
-  let pr = tryly('gh', ['pr', 'list', '-R', REPO, '--head', branch, '--state', 'open', '--json', 'number', '--jq', '.[0].number // ""']);
-  if (!pr) { sh('gh', ['pr', 'create', '-R', REPO, '--base', 'main', '--head', branch, '--title', `[팩] ${title} (${item.packId})`, '--body', body]); pr = sh('gh', ['pr', 'list', '-R', REPO, '--head', branch, '--state', 'open', '--json', 'number', '--jq', '.[0].number']); }
+  const body = `도름스에서 받은 요청 ${no}번이에요(${item.revision}번째 판).\n\n- 팩: \`${item.packId}\`\n- 만든 사람: ${who} (도름스)\n- 운영자가 도름스에서 직접 해 보고 승인했어요.\n\n이 요청은 '승인된 팩 싣기' 작업이 자동으로 열었고, 검사를 통과하면 자동으로 병합해요.`;
+  // 우리 저장소의 가지에서 연 요청만 본다(남의 포크가 같은 가지 이름으로 연 요청에 속지 않게)
+  const ours = () => tryly('gh', ['pr', 'list', '-R', REPO, '--head', branch, '--state', 'open', '--json', 'number,isCrossRepository', '--jq', '[.[] | select(.isCrossRepository == false)][0].number // ""']);
+  let pr = ours();
+  if (!pr) { sh('gh', ['pr', 'create', '-R', REPO, '--base', 'main', '--head', branch, '--title', `[팩] ${title} (${item.packId})`, '--body', body]); pr = ours(); }
+  if (!/^\d+$/.test(pr)) return { result: 'failed', reason: '요청을 열었는데 번호를 찾지 못했어요. 저장소를 확인해 주세요.' };
   const check = await waitCheck(branch, head);
   if (!check.ok) {
     const why = check.late ? '자동 검사가 12분 안에 끝나지 않았어요.' : `자동 검사에서 걸렸어요(운영 판 기준). ${clean(tryly('gh', ['run', 'view', String(check.run), '-R', REPO, '--log-failed']).split('\n').filter(l => /✗|×|FAIL|걸렸|어요|Error/.test(l)).slice(0, 4).map(l => l.split('\t').pop()).join(' / '), 380)}`;
@@ -125,7 +131,7 @@ async function publish(item) {
 async function main() {
   if (!SECRET) { console.log('WORLD_PUBLISH_SECRET 이 없어 아무것도 하지 않아요.'); return; }
   const got = await dorms('GET');
-  const items = Array.isArray(got.items) ? got.items.slice(0, 3) : [];
+  const items = Array.isArray(got.items) ? got.items.slice(0, 1) : [];   // 한 번에 하나만 싣는다(검사와 배포를 기다리는 시간이 길다). 나머지는 다음 차례에
   if (!items.length) { console.log('승인돼 기다리는 팩이 없어요.'); return; }
   let bad = 0;
   for (const item of items) {

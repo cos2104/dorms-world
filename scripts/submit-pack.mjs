@@ -4,7 +4,7 @@
 // 팩 폴더의 자료(글 파일)만 보낸다. 새 장치를 만들려고 판(platform/)을 고쳤다면 npm run submit:code 를 쓴다.
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
 import { join } from 'node:path';
 
@@ -27,6 +27,8 @@ const MAX_FILE = 100_000, MAX_TOTAL = 300_000, MAX_COUNT = 120;
 const WORDS = { submitted: '운영자가 살펴보기를 기다리는 중', approved: '승인됨, 곧 실려요', publishing: '싣는 중', published: '실렸어요', rejected: '돌려보냄', failed: '싣다가 막힘(운영자가 보고 있어요)' };
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+// 서버가 준 글을 터미널에 찍기 전에 제어 문자를 지운다(화면을 속이는 글자가 섞이지 않게)
+const plain = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').trim().slice(0, max);
 async function call(path, { method = 'GET', key, body } = {}) {
   let res;
   try {
@@ -44,9 +46,9 @@ async function link() {
   const tokenHash = createHash('sha256').update(key).digest('hex');
   const made = await call('/api/world/link', { method: 'POST', body: { tokenHash, device: hostname().slice(0, 60) } });
   if (made.status === 429) stop('연결을 너무 자주 시도했어요. 10분쯤 뒤에 다시 해 주세요.');
-  const code = String(made.data.code ?? ''), url = String(made.data.verifyUrl ?? '');
-  if (made.status !== 200 || !/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code) || !url.startsWith(ORIGIN + '/')) stop(`도름스가 연결을 받지 못했어요(${made.status}). 잠시 뒤 다시 해 주세요.`);
-  say(`\n처음 한 번, 이 컴퓨터가 선생님 이름으로 보내도 되는지 도름스에서 허락해 주세요.\n  1. 브라우저에 열리는 화면에서 도름스에 로그인해요(안 열리면 이 주소를 직접 열어요).\n     ${url}\n  2. 화면의 확인 글자가 ${code} 인지 보고 '허락'을 눌러요.\n기다리는 중이에요(10분 안에).`);
+  const code = String(made.data.code ?? ''), url = `${ORIGIN}/world/link`;   // 여는 주소는 서버가 준 것을 쓰지 않고 여기서 정한다
+  if (made.status !== 200 || !/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code)) stop(`도름스가 연결을 받지 못했어요(${made.status}). 잠시 뒤 다시 해 주세요.`);
+  say(`\n처음 한 번, 이 컴퓨터가 선생님 이름으로 보내도 되는지 도름스에서 허락해 주세요.\n  1. 브라우저에 열리는 화면에서 도름스에 로그인해요(안 열리면 이 주소를 직접 열어요).\n     ${url}\n  2. 그 화면에 아래 확인 글자를 적고 '허락'을 눌러요.\n\n     확인 글자:  ${code}\n\n  (이 글자는 방금 이 컴퓨터에서 보내기를 실행한 선생님만 알아요. 다른 사람이 알려 준 글자는 적지 마세요.)\n기다리는 중이에요(10분 안에).`);
   const opener = win ? ['cmd', ['/c', 'start', '', url]] : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
   try { spawnSync(opener[0], opener[1], { stdio: 'ignore', timeout: 5000 }); } catch { /* 못 열면 주소를 직접 연다 */ }
   const until = Date.now() + 10 * 60_000;
@@ -55,6 +57,7 @@ async function link() {
     const seen = await call(`/api/world/link?code=${encodeURIComponent(code)}&tokenHash=${tokenHash}`);
     if (seen.data.status === 'approved') {
       mkdirSync(KEY_DIR, { recursive: true, mode: 0o700 });
+      try { chmodSync(KEY_DIR, 0o700); } catch { /* 윈도우 */ }
       writeFileSync(KEY_FILE, key + '\n', { mode: 0o600 });
       try { chmodSync(KEY_FILE, 0o600); } catch { /* 윈도우 */ }
       say('허락됐어요. 다음부터는 이 과정 없이 바로 보내요.');
@@ -84,9 +87,9 @@ if (args[0] === '--status') {
   const list = Array.isArray(res.data.requests) ? res.data.requests : [];
   if (!list.length) { say('아직 보낸 요청이 없어요.'); process.exit(0); }
   for (const r of list) {
-    say(`요청 ${r.number}번  ${r.packId}  「${String(r.title ?? '').slice(0, 40)}」  ${WORDS[r.status] ?? r.status}`);
-    if (r.note) say(`   운영자 한마디: ${String(r.note).slice(0, 500)}`);
-    if (r.status === 'published' && r.playUrl) say(`   게임 주소: ${r.playUrl}`);
+    say(`요청 ${Number(r.number) || '?'}번  ${plain(r.packId, 90)}  「${plain(r.title, 40)}」  ${WORDS[r.status] ?? plain(r.status, 20)}`);
+    if (r.note) say(`   운영자 한마디: ${plain(r.note, 500)}`);
+    if (r.status === 'published' && r.playUrl) say(`   게임 주소: ${plain(r.playUrl, 200)}`);
   }
   process.exit(0);
 }
@@ -118,8 +121,10 @@ const files = {}, skipped = [];
 const walk = rel => {
   for (const name of readdirSync(join(dir, rel)).sort()) {
     const path = rel ? `${rel}/${name}` : name, full = join(dir, path);
-    if (statSync(full).isDirectory()) { walk(path); continue; }
+    const st = lstatSync(full);   // 링크는 따라가지 않는다(팩 밖의 파일이 딸려 가지 않게)
+    if (st.isDirectory()) { walk(path); continue; }
     if (!FILE_OK.test(path)) { skipped.push(path); continue; }
+    if (!st.isFile() || st.nlink > 1) stop(`${path} 가 보통 파일이 아니에요(다른 파일로 이어진 링크). 팩에는 파일을 직접 넣어 주세요.`);
     const body = readFileSync(full, 'utf8');
     if (Buffer.byteLength(body) > MAX_FILE) stop(`${path} 가 너무 커요(파일 하나는 100KB까지).`);
     if (body.includes('\0') || body.includes('�')) stop(`${path} 가 글 파일이 아니에요. 팩에는 글 파일만 넣어요.`);
@@ -136,14 +141,14 @@ if (skipped.length) say(`  보내지 않는 파일: ${skipped.slice(0, 6).join('
 
 say(`3/3 도름스로 보내는 중이에요(파일 ${names.length}개, ${Math.max(1, Math.round(total / 1000))}KB).`);
 const sent = await withKey(key => call('/api/world/packs', { method: 'POST', key, body: { id, files, ...(note ? { note } : {}) } }));
-const d = sent.data, msg = typeof d.message === 'string' ? d.message.slice(0, 600) : '';
+const d = sent.data, msg = typeof d.message === 'string' ? plain(d.message, 600) : '';
 if (sent.status === 200 && d.number) {
-  say(`\n보냈어요. 요청 ${d.number}번이에요${Number(d.revision) > 1 ? `(${d.revision}번째로 고쳐 보냄)` : ''}.\n운영자가 직접 해 본 뒤 승인하면 도름스 월드와 오락실에 선생님 이름으로 실려요. 결과는 도름스 쪽지로 와요.\n어떻게 됐는지 보려면: npm run submit -- --status`);
+  say(`\n보냈어요. 요청 ${Number(d.number)}번이에요${Number(d.revision) > 1 ? `(${Number(d.revision)}번째로 고쳐 보냄)` : ''}.\n운영자가 직접 해 본 뒤 승인하면 도름스 월드와 오락실에 선생님 이름으로 실려요. 결과는 도름스 쪽지로 와요.\n어떻게 됐는지 보려면: npm run submit -- --status`);
   process.exit(0);
 }
-if (sent.status === 422 && d.error === 'unit') stop(`${msg || '단원 이름을 도름스 오락실의 단원에서 찾지 못했어요.'}\n${Array.isArray(d.candidates) && d.candidates.length ? `이 가운데에서 골라 pack.json 의 units 에 그대로 적어 주세요:\n  ${d.candidates.slice(0, 40).map(String).join('\n  ')}` : '쓸 수 있는 이름은 npm run units 로 볼 수 있어요.'}`);
+if (sent.status === 422 && d.error === 'unit') stop(`${msg || '단원 이름을 도름스 오락실의 단원에서 찾지 못했어요.'}\n${Array.isArray(d.candidates) && d.candidates.length ? `이 가운데에서 골라 pack.json 의 units 에 그대로 적어 주세요:\n  ${d.candidates.slice(0, 40).map(c => plain(c, 80)).join('\n  ')}` : '쓸 수 있는 이름은 npm run units 로 볼 수 있어요.'}`);
 if (sent.status === 409 && d.error === 'taken') stop(msg || `${id} 는 다른 선생님이 이미 쓰는 이름이에요. 팩 폴더 이름(과 pack.json 의 id)을 바꿔 다시 보내 주세요.`);
-if (sent.status === 409 && d.error === 'busy') stop(msg || '이 팩은 승인돼서 싣는 중이에요. 실린 뒤에 고친 판을 다시 보내 주세요.');
+if (sent.status === 409 && d.error === 'busy') stop(msg || '이 팩은 이미 승인돼서 싣는 중이에요. 실린 뒤에 고친 판을 다시 보내 주세요.');
 if (sent.status === 429) stop(msg || '오늘 보낼 수 있는 횟수를 다 썼어요. 내일 다시 보내 주세요.');
 if (sent.status === 403) stop(msg || '보낼 수 있는 조건이 아직 안 됐어요. 도름스에서 교사 인증과 도름스 약속 동의를 확인해 주세요.');
 if (sent.status === 423) stop(msg || '도름스가 잠깐 글 올리기를 멈춰 두었어요. 조금 뒤에 다시 보내 주세요.');

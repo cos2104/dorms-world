@@ -114,6 +114,9 @@ body { word-break: keep-all; overflow-wrap: anywhere; }
 .w-root .w-hud-l > .ar-count { flex: none; min-height: 28px; }
 .w-root .w-hud-l > .grow { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #14285F; }
 .w-root .w-hud .ar-key.ghost { background: #EEF5FF; min-height: 44px; white-space: nowrap; }   /* 하늘 그림 위에서도 단추가 제 면을 갖는다 */
+/* 켜진 고르기 단추(다 같이): 위 줄의 #EEF5FF 면(0,4,0)이 공용 켜짐 칠(.ar-key[aria-pressed=true], 0,3,0)을 덮어 켜도 모양이 그대로였다(2026-11-20 실측, 바탕 같음).
+   팩 화면 인원 단추와 같은 켜짐 칠(파랑 18%)을 이 면 위에 섞은 불투명 값으로 준다 */
+.w-root .w-hud .ar-key.ghost[aria-pressed=true] { background: #CDDEF6; }
 .w-root .w-hint { top: 68px; }
 /* 좁은 화면 · 휴대폰 가로: 위쪽 줄 단추는 그림만 남겨 44px 정사각형으로, 남는 폭은 스테이지 이름이 쓴다
    (390 에서 '조작 익히기 02 저울 익히기' 가 "조…" 로, 가로 844 에서 "조작 익히기 02 저…" 로 잘리던 것). 좁은 세로 화면에서는 묶음 이름 · '연습' 표시도 숨긴다. */
@@ -121,6 +124,12 @@ body { word-break: keep-all; overflow-wrap: anywhere; }
   .w-root .w-hud-r .w-hide-s { display: none; }
   .w-root .w-hud-r .ar-key { width: 44px; min-width: 44px; padding: 0; justify-content: center; gap: 0; }
   .w-root .w-hud-r { gap: .4rem; }
+}
+/* 360 폭: 단추 넷(44px)이 줄을 차지해 스테이지 이름 칸이 43.7px 로 줄어 두 줄로도 다 안 들어갔다. 단추를 40px(터치 하한)로 줄이고 사이를 좁혀 이름 칸을 넓힌다 */
+@media (max-width: 380px) {
+  .w-root .w-hud-r { gap: .25rem; }
+  .w-root .w-hud-r .ar-key { width: 40px; min-width: 40px; }
+  .w-root .w-hud-l { gap: .35rem; }
 }
 @media (max-width: 560px) { .w-root .w-hud-l > .w-hide-s { display: none; } }
 /* 좁은 세로 화면: 스테이지 이름이 길면('02 덜고 나서 나누기' 126px, 칸 124px · 360 에서 94px) 말줄임 대신 두 줄까지 접는다. 위쪽 줄 높이 44px 안에 두 줄(16px × 2)이 들어간다. */
@@ -178,6 +187,8 @@ body { word-break: keep-all; overflow-wrap: anywhere; }
 
 /* 스테이지 줄 오른쪽 끝을 인원 단추 줄 끝과 맞춘다(명단의 스크롤 여유 2px 때문에 2px 짧았다) */
 .w-root .w-stages { padding-right: 0; }
-.w-review-warn { font-size: .85rem; }
+.w-review-warn { font-size: .85rem; margin-bottom: 0; }   /* 단추 줄과의 사이는 단추 줄 margin-top 하나로(두 여백이 겹쳐 남던 것) */
+.w-review-actions:empty { display: none; }   /* 도름스 요청에 설계서가 없으면 단추 줄이 비어 9.6px 빈 띠만 남았다 */
+.w-review .w-nick { display: inline-block; max-width: 100%; }   /* '@' 와 닉네임이 줄 끝에서 갈라지지 않게. 한 덩어리로 다음 줄로 가고, 줄보다 긴 이름(40자)만 그 안에서 접힌다 */
 .w-review-moved { margin-top: .5rem; font-weight: 700; }
 .w-review-moved[hidden] { display: none; }

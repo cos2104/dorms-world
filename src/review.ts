@@ -21,6 +21,7 @@ export type Review = {
   status?: string;           // 도름스 요청의 지금 상태(submitted, approved, publishing, published, rejected, failed)
   note?: string;             // 보낸 선생님이 운영자에게 남긴 한마디
   decisionNote?: string;     // 운영자가 돌려보내며 남긴 한마디
+  update?: boolean;          // 이미 실려 있는 팩을 고친 판인가(승인하면 실린 팩이 통째로 바뀐다)
 };
 
 async function json(url: string): Promise<unknown> {
@@ -99,7 +100,7 @@ export async function loadDormsReview(id: string): Promise<Review> {
   try { r = await fetch(`${DORMS}/api/world/requests/${id}`, { cache: 'no-store' }); } catch { throw new Error('도름스에서 요청을 읽지 못했어요. 인터넷을 확인하고 다시 열어 주세요.'); }
   if (r.status === 404) throw new Error('그런 요청이 없어요.');
   if (!r.ok) throw new Error(`요청을 읽지 못했어요(${r.status}).`);
-  const d = await r.json() as { number?: unknown; packId?: unknown; sha?: unknown; status?: unknown; title?: unknown; note?: unknown; decisionNote?: unknown; author?: { nickname?: unknown }; files?: unknown };
+  const d = await r.json() as { mode?: unknown; number?: unknown; packId?: unknown; sha?: unknown; status?: unknown; title?: unknown; note?: unknown; decisionNote?: unknown; author?: { nickname?: unknown }; files?: unknown };
   const packId = str(d.packId, 90);
   if (!/^[a-z0-9-]{1,40}\/[a-z0-9-]{1,40}$/.test(packId)) throw new Error('요청의 팩 이름을 읽지 못했어요.');
   const files = d.files && typeof d.files === 'object' && !Array.isArray(d.files) ? d.files as Record<string, unknown> : {};
@@ -122,7 +123,7 @@ export async function loadDormsReview(id: string): Promise<Review> {
     number: Number(d.number) || 0, title: str(d.title, 120), author: str(d.author?.nickname, 40), url: '',
     state: status === 'published' ? 'merged' : status === 'rejected' ? 'closed' : 'open', sha: str(d.sha, 64),
     pack: { ...pack, id: packId }, design: (store.get('DESIGN.md') ?? '').slice(0, 20000),
-    others: [], extraPacks: [], source: 'dorms', status, note: str(d.note, 500), decisionNote: str(d.decisionNote, 500),
+    others: [], extraPacks: [], source: 'dorms', status, note: str(d.note, 500), decisionNote: str(d.decisionNote, 500), update: d.mode === 'update',
   };
 }
 
