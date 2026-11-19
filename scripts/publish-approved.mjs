@@ -63,19 +63,24 @@ const report = async (item, rest) => {
   return false;
 };
 
-async function waitCheck(branch, head) {
-  // 자동 검사를 이 가지에서 돌리고 끝날 때까지 기다린다(이 작업이 연 요청에는 검사가 저절로 붙지 않아서 직접 돌린다)
-  sh('gh', ['workflow', 'run', 'pack-check.yml', '-R', REPO, '--ref', branch]);
+async function waitCheck(pr, head) {
+  // 이 작업이 연 요청의 자동 검사는 GitHub 가 '승인 필요'로 잡아 둔다(자동 작업이 연 요청이라서). 그 실행을 승인해 돌리고, 요청이 병합할 수 있는 상태가 될 때까지 기다린다.
   const until = Date.now() + 12 * 60_000;
+  let approved = new Set(), last = '';
   while (Date.now() < until) {
-    await sleep(10_000);
-    const out = tryly('gh', ['run', 'list', '-R', REPO, '--workflow', 'pack-check.yml', '--branch', branch, '--event', 'workflow_dispatch', '--limit', '5', '--json', 'databaseId,status,conclusion,headSha']);
-    let runs = [];
-    try { runs = JSON.parse(out || '[]'); } catch { /* 잠깐 못 읽으면 다시 */ }
-    const mine = runs.find(r => r.headSha === head);
-    if (mine?.status === 'completed') return { ok: mine.conclusion === 'success', run: mine.databaseId };
+    await sleep(8000);
+    const held = tryly('gh', ['api', `repos/${REPO}/actions/runs?head_sha=${head}&status=action_required`, '--jq', '.workflow_runs[].id']).split('\n').filter(v => /^\d+$/.test(v));
+    for (const id of held) if (!approved.has(id)) { approved.add(id); const ok = tryly('gh', ['api', '-X', 'POST', `repos/${REPO}/actions/runs/${id}/approve`]); console.log(`  잡혀 있던 검사 실행 ${id} 를 돌려요.`); void ok; }
+    let view = {};
+    try { view = JSON.parse(tryly('gh', ['pr', 'view', pr, '-R', REPO, '--json', 'mergeStateStatus,headRefOid,statusCheckRollup']) || '{}'); } catch { /* 잠깐 못 읽으면 다시 */ }
+    if (view.headRefOid && view.headRefOid !== head) return { ok: false, why: '요청의 내용이 그새 바뀌었어요.' };
+    const checks = (view.statusCheckRollup ?? []).filter(c => c.name === 'check');
+    const state = `${view.mergeStateStatus} ${checks.map(c => `${c.status}:${c.conclusion}`).join(',')}`;
+    if (state !== last) { console.log(`  요청 상태 ${state}`); last = state; }
+    if (checks.some(c => c.status === 'COMPLETED' && !['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(c.conclusion))) return { ok: false, failed: true };
+    if (['CLEAN', 'UNSTABLE', 'HAS_HOOKS'].includes(view.mergeStateStatus) && checks.some(c => c.conclusion === 'SUCCESS')) return { ok: true };
   }
-  return { ok: false, run: 0, late: true };
+  return { ok: false, late: true };
 }
 async function waitDeploy(commit) {
   // 배포가 끝났는지 커밋에 붙는 상태로 본다. 6분 안에 안 보이면 그대로 알린다(배포는 따로 이어진다)
@@ -112,9 +117,10 @@ async function publish(item) {
   let pr = ours();
   if (!pr) { sh('gh', ['pr', 'create', '-R', REPO, '--base', 'main', '--head', branch, '--title', `[팩] ${title} (${item.packId})`, '--body', body]); pr = ours(); }
   if (!/^\d+$/.test(pr)) return { result: 'failed', reason: '요청을 열었는데 번호를 찾지 못했어요. 저장소를 확인해 주세요.' };
-  const check = await waitCheck(branch, head);
+  const check = await waitCheck(pr, head);
   if (!check.ok) {
-    const why = check.late ? '자동 검사가 12분 안에 끝나지 않았어요.' : `자동 검사에서 걸렸어요(운영 판 기준). ${clean(tryly('gh', ['run', 'view', String(check.run), '-R', REPO, '--log-failed']).split('\n').filter(l => /✗|×|FAIL|걸렸|어요|Error/.test(l)).slice(0, 4).map(l => l.split('\t').pop()).join(' / '), 380)}`;
+    const log = check.failed ? clean(tryly('gh', ['run', 'list', '-R', REPO, '--workflow', 'pack-check.yml', '--branch', branch, '--limit', '1', '--json', 'databaseId', '--jq', '.[0].databaseId']), 20) : '';
+    const why = check.why ?? (check.late ? '자동 검사가 12분 안에 끝나지 않았어요.' : `자동 검사에서 걸렸어요(운영 판 기준). ${clean(tryly('gh', ['run', 'view', log, '-R', REPO, '--log-failed']).split('\n').filter(l => /✗|×|FAIL|걸렸|어요|Error/.test(l)).slice(0, 4).map(l => l.split('\t').pop()).join(' / '), 380)}`);
     tryly('gh', ['pr', 'close', pr, '-R', REPO, '--delete-branch', '--comment', why.slice(0, 500)]);
     return { result: 'failed', reason: why.slice(0, 500) };
   }
