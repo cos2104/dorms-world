@@ -14,7 +14,7 @@ import { cameraFor, loadAssets, nearText, render, renderPreview, type Camera } f
 import { createWorld, step, NO_PAD, type World } from '../platform/sim';
 import { esc } from '../platform/text';
 import { makeScreen } from './make';
-import { loadReview, type Review } from './review';
+import { headOf, loadReview, type Review } from './review';
 
 const BASE = import.meta.env.BASE_URL;
 const app = document.getElementById('app')!;
@@ -68,12 +68,18 @@ function packScreen(p: Pack, people = 4, review: Review | null = null) {
   const counts = [...new Set([p.players.min, 4, 8, p.players.max])].filter(n => n >= p.players.min && n <= p.players.max).sort((a, b) => a - b);
   if (!counts.includes(people)) people = counts[0];
   const rows = p.stages.map((s, i) => `<button class="ar-row w-stage" data-stage="${i}"><span class="ar-count w-stageno">${String(i + 1).padStart(2, '0')}</span><span class="ar-label">${esc(s.name)}</span><span class="ar-count">${levelWord(s.difficulty)}</span></button>`).join('');
-  const stateWord = review?.state === 'merged' ? '이미 실린 요청이에요.' : review?.state === 'closed' ? '닫힌 요청이에요.' : '';
+  const open = review?.state === 'open';
+  const stateLine = review?.state === 'merged' ? '이미 실린 요청이에요.' : review?.state === 'closed' ? '닫힌 요청이에요.'
+    : review?.others.length ? `이 요청에는 이 팩 말고 바뀐 파일이 ${review.others.length}개 있어요. 판을 고친 것은 여기서 돌지 않으니 세션에서 살펴봐 주세요.`
+    : '팩 파일만 바뀐 요청이에요. 아래에서 직접 해 보고, 괜찮으면 승인하러 가서 병합 단추를 누르면 실려요.';
   const reviewBox = review ? `<div class="w-review" role="note">
-      <p class="w-review-line"><strong>요청 ${review.number}번을 살펴보는 중이에요.</strong> 올린 사람 @${esc(review.author)} ${esc(stateWord)}</p>
-      ${review.others.length ? `<p class="w-review-line">이 요청에는 판을 고친 파일이 ${review.others.length}개 들어 있어요. 새 장치는 여기서 돌지 않으니 세션에서 내려받아 확인해 주세요.</p><p class="w-review-files">${review.others.slice(0, 8).map(esc).join(', ')}${review.others.length > 8 ? ' …' : ''}</p>` : `<p class="w-review-line">팩 파일만 바뀐 요청이에요. 아래에서 직접 해 보고, 괜찮으면 승인하러 가서 병합 단추를 누르면 실려요.</p>`}
+      <p class="w-review-line"><strong>요청 ${review.number}번을 살펴보는 중이에요.</strong> 올린 사람 @${esc(review.author)} · 살펴보는 판 ${esc(review.sha.slice(0, 7))}</p>
+      <p class="w-review-line">${esc(stateLine)}</p>
+      ${open && review.others.length ? `<p class="w-review-files">${review.others.slice(0, 8).map(esc).join(', ')}${review.others.length > 8 ? ' 등' : ''}</p>` : ''}
       ${review.extraPacks.length ? `<p class="w-review-line">다른 팩도 함께 바뀌었어요: ${review.extraPacks.map(esc).join(', ')}</p>` : ''}
-      <div class="w-review-actions"><a class="ar-key mustard" href="${esc(review.url)}" target="_blank" rel="noopener noreferrer">${icon('right', 17)}승인하러 가기</a>${review.design ? `<button class="ar-key ghost" data-design aria-expanded="false">설계서 보기</button>` : ''}</div>
+      <p class="w-review-line w-review-warn">도름스가 아직 확인하지 않은 요청이에요. 여기 적힌 글은 요청을 올린 사람이 쓴 것이에요.</p>
+      <div class="w-review-actions"><a class="ar-key mustard" data-approve href="${esc(review.url)}" target="_blank" rel="noopener noreferrer">${icon('right', 17)}<span>${open ? '승인하러 가기' : '요청 보러 가기'}</span></a>${review.design ? `<button class="ar-key ghost" data-design aria-expanded="false">설계서 보기</button>` : ''}</div>
+      <p class="w-review-line w-review-moved" hidden>그새 요청이 바뀌었어요. 화면을 새로 열어 다시 살펴본 뒤 승인해 주세요.</p>
       ${review.design ? `<pre class="w-design" hidden>${esc(review.design)}</pre>` : ''}
     </div>` : '';
   app.innerHTML = shell(`${reviewBox}
@@ -96,6 +102,19 @@ function packScreen(p: Pack, people = 4, review: Review | null = null) {
     `<button class="ar-key ghost w-backbtn" data-back>${icon('back', 17)}처음으로</button>`);
   app.querySelectorAll<HTMLButtonElement>('[data-people]').forEach(b => b.onclick = () => packScreen(p, Number(b.dataset.people), review));
   app.querySelectorAll<HTMLButtonElement>('[data-stage]').forEach(b => b.onclick = () => play(p, Number(b.dataset.stage), people, review));
+  // 승인하러 가기 전에 요청이 그새 바뀌지 않았는지 본다(살펴본 뒤에 다른 것을 밀어 넣으면 알 수 있게). 확인이 안 되면 그대로 보낸다.
+  const approve = app.querySelector<HTMLAnchorElement>('[data-approve]'), moved = app.querySelector<HTMLElement>('.w-review-moved');
+  if (review && approve && moved && review.state === 'open') approve.addEventListener('click', e => {
+    if (approve.dataset.checked) return;   // 이미 확인했거나, 바뀐 것을 알린 뒤(그때는 이 화면을 새로 연다)
+    e.preventDefault();
+    // 새 창은 누른 그 순간에 열어 두고(나중에 열면 브라우저가 막는다), 확인이 끝나면 그 창을 요청 화면으로 보낸다
+    const tab = window.open('', '_blank');
+    const goOn = () => { approve.dataset.checked = '1'; if (tab) { tab.opener = null; tab.location.href = review.url; } else location.href = review.url; };
+    headOf(review.number).then(sha => {
+      if (sha && sha !== review.sha) { tab?.close(); moved.hidden = false; approve.querySelector('span')!.textContent = '새로 열어 다시 살펴보기'; approve.removeAttribute('target'); approve.href = location.href; approve.dataset.checked = '1'; }
+      else goOn();
+    }, goOn);
+  });
   const designBtn = app.querySelector<HTMLButtonElement>('[data-design]'), designEl = app.querySelector<HTMLElement>('.w-design');
   if (designBtn && designEl) designBtn.onclick = () => { designEl.hidden = !designEl.hidden; designBtn.setAttribute('aria-expanded', String(!designEl.hidden)); designBtn.textContent = designEl.hidden ? '설계서 보기' : '설계서 접기'; };
   app.querySelector<HTMLButtonElement>('[data-back]')!.onclick = () => go('');

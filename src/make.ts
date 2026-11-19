@@ -19,7 +19,7 @@ const STEPS: [string, string][] = [
 
 async function copyText(text: string, button: HTMLButtonElement, done: string) {
   const label = button.querySelector('span')!;
-  const before = label.textContent;
+  button.dataset.label ??= label.textContent ?? '';   // 원래 글은 한 번만 기억한다(빨리 두 번 눌러도 '복사했어요'로 굳지 않게)
   let ok = false;
   try { await navigator.clipboard.writeText(text); ok = true; } catch {
     // 권한이 막힌 화면(액자 안 등)에서는 글 칸을 골라 복사한다
@@ -28,8 +28,11 @@ async function copyText(text: string, button: HTMLButtonElement, done: string) {
     try { ok = document.execCommand('copy'); } catch { ok = false; }
     area.remove();
   }
-  label.textContent = ok ? done : '복사하지 못했어요. 글을 직접 골라 복사해 주세요';
-  window.setTimeout(() => { label.textContent = before; }, 2400);
+  label.textContent = ok ? done : '복사하지 못했어요';
+  // 못 했으면 안내문을 골라 둔다(바로 Ctrl+C 나 길게 눌러 복사할 수 있게)
+  if (!ok) { const pre = document.querySelector('.w-prompt'); if (pre) { const range = document.createRange(); range.selectNodeContents(pre); const sel = window.getSelection(); sel?.removeAllRanges(); sel?.addRange(range); } }
+  window.clearTimeout(Number(button.dataset.timer));
+  button.dataset.timer = String(window.setTimeout(() => { label.textContent = button.dataset.label ?? ''; }, 2400));
 }
 
 export function makeScreen(app: HTMLElement, shell: (inner: string, status: string, right: string, back?: string) => string, goHome: () => void) {
@@ -48,7 +51,7 @@ export function makeScreen(app: HTMLElement, shell: (inner: string, status: stri
         <p class="ar-kicker w-kicker">필요한 것</p>
         <ul class="w-notes"><li>내 컴퓨터에서 도는 코딩 AI</li><li>Node.js 와 Git(없으면 AI 가 설치를 도와줘요)</li><li>요청을 올릴 때 쓸 GitHub 계정</li></ul>
         <p class="ar-kicker w-kicker">알아 둘 것</p>
-        <ul class="w-notes"><li>수업 자료는 내 컴퓨터에서 내 AI 가 읽어요. 도름스로 올라가지 않아요.</li><li>내가 쓰는 AI 서비스에는 내용이 전달돼요. 학생 이름, 성적, 연락처가 든 파일은 빼고 주세요.</li><li>올라가는 것은 팩 폴더(설계서, 지도, 그림)와 도름스 닉네임이에요. 누구나 볼 수 있으니 학생 이름과 사진은 넣지 마세요.</li><li>그림과 화면 부품은 정해진 물감과 모양으로만 만들어져서, 누가 만들어도 한 게임처럼 보여요.</li></ul>
+        <ul class="w-notes"><li>수업 자료는 내 컴퓨터에서 내 AI 가 읽어요. 도름스로 올라가지 않아요.</li><li>내가 쓰는 AI 서비스에는 내용이 전달돼요. 학생 이름, 성적, 연락처가 든 파일은 빼고 주세요.</li><li>올라가는 것은 팩 폴더(설계서, 지도, 그림)와 도름스 닉네임이에요. 요청을 올린 GitHub 아이디도 함께 보여요. 누구나 볼 수 있으니 학생 이름과 사진은 넣지 마세요.</li><li>그림과 화면 부품은 정해진 물감과 모양으로만 만들어져서, 누가 만들어도 한 게임처럼 보여요.</li></ul>
       </div>
     </div>`,
     '복사해서 내 AI 에 붙여 넣으면 시작돼요', 'MAKE',
