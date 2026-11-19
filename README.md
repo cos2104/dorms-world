@@ -22,12 +22,13 @@
 
 ## 폴더
 
-- `platform/` 판: 지도 읽기(`stage.ts`), 물리와 장치(`sim.ts`), 저울의 식(`equation.ts`), 글자 그림(`sprite.ts`), 그리기(`render.ts`), 화풍(`look.ts`), 화면 부품(`ui/`)
+- `platform/` 판: 지도 읽기(`stage.ts`), 물리와 장치(`sim.ts`), 저울의 식(`equation.ts`), 글자 그림(`sprite.ts`), 그리기(`render.ts`), 화풍(`look.ts`), 화면 부품(`ui/`), 온라인(`room-rules.ts`, `net.ts`, `sync.ts`)
 - `packs/<교과>/<팩>/` 스테이지 묶음: `pack.json`, `DESIGN.md`, `stages/NN.map.txt`, `stages/NN.json`, `sprites/*.txt`
 - `kit/` 선생님의 AI 가 읽는 하네스: 순서(`skills/coop-game/SKILL.md`), 형식(`STAGE_FORMAT.md`), 그림(`ART_GUIDE.md`), 새 장치(`DEVICE_GUIDE.md`), 설계서 틀(`DESIGN.template.md`)
-- `src/` 화면: 처음 화면, 팩 화면, 게임 화면, 게임 만들기, 요청 검토
-- `tests/` 물리, 저울, 글자 그림, 팩 검사, 봇이 끝까지 깨 보기
-- `scripts/` 도름스로 보내기(`submit-pack.mjs`), 승인된 팩 싣기(`publish-approved.mjs`, GitHub Actions 가 돌림), 팩 파일 검사, 화면 찍기
+- `src/` 화면: 처음 화면, 팩 화면, 게임 화면, 게임 만들기, 요청 검토, 온라인으로 함께 하기(`online.ts`)
+- `room-server/` 방 서버(Cloudflare Workers + Durable Objects). 따로 설치하고 따로 올린다(`room-server/README.md`)
+- `tests/` 물리, 저울, 글자 그림, 팩 검사, 봇이 끝까지 깨 보기, 온라인 규칙(방 · 요약 · 연결)
+- `scripts/` 도름스로 보내기(`submit-pack.mjs`), 승인된 팩 싣기(`publish-approved.mjs`, GitHub Actions 가 돌림), 팩 파일 검사, 화면 찍기, 온라인 끝까지 돌려 보기(`net-check.mjs`)
 
 ```
 npm i
@@ -45,6 +46,24 @@ npm run submit -- <교과>/<팩>   # 도름스로 보내기
 - 스테이지의 그림은 글자로 찍는다. 쓸 수 있는 물감이 정해져 있고 가장자리는 남색 윤곽으로 두른다(`kit/ART_GUIDE.md`). 검사가 본다.
 - 화면 부품(창, 단추)은 판의 것만 쓴다.
 - 팩 안에는 자료만 둔다(코드 없음). 새 움직임이 필요하면 판에 장치를 더하고(`kit/DEVICE_GUIDE.md`), 그 요청은 운영자가 코드를 살펴본 뒤 싣는다.
+
+## 온라인으로 함께 하기
+
+방을 만들고(공개 여부 · 방식 고르기) QR, 방 코드, 공개 방 목록으로 들어온다. 가입도 이름 입력도 없고, 들어온 차례대로 색과 번호가 정해진다. 한 방에 30명까지.
+방식은 둘이고 한 방에 섞여도 된다: **각자 화면**(자기 기기에서 게임 화면을 보며 조작) / **함께 보기**(방을 연 큰 화면에 모두가 보이고, 다른 사람은 휴대폰을 조작기로만 씀).
+물리는 방장 기기만 돌리고, 손님은 조작만 보내며 방장이 초당 스무 번 보내는 세계 요약을 받아 그린다. 방장이 나가면 그다음으로 오래된 사람이 이어받는다.
+방 서버는 저장하지 않는다. 자리 번호, 조작 신호, 세계 요약, 방 정보만 지나가고, 화면에 뜨는 글은 모두 그 기기의 코드가 만든 것이다(다른 기기가 보낸 글자를 그리는 칸이 없다).
+
+방 서버 주소는 빌드 변수 `VITE_ROOM_URL` 로 준다. **이 값이 비어 있으면 온라인 들머리(방 만들기 · 방 코드 · 공개 방)를 아예 그리지 않는다.**
+
+```
+npm --prefix room-server i                      # 처음 한 번(wrangler)
+npm --prefix room-server run dev                # 방 서버를 이 컴퓨터에 띄운다(로그인 필요 없음, http://localhost:8787)
+VITE_ROOM_URL=http://localhost:8787 npm run dev # 또는 .env.development.local 에 같은 줄(커밋하지 않는다)
+node scripts/net-check.mjs --shots              # 방 서버와 개발 서버를 스스로 띄워 브라우저 여러 대로 끝까지 돌려 본다
+```
+
+운영에 올리는 순서와 같은 와이파이의 휴대폰으로 해 보는 법은 `room-server/README.md`.
 
 ## 권리
 
