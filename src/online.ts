@@ -480,10 +480,10 @@ function openGame(p: Pack, si: number) {
   host.setStop(null);
   const stage = p.stageData[si];
   const world: World = createWorld(stage, l.room.order.map(seat => ({ color: colorFor(seat) })), l.room.seed);
-  const pads = new Map<number, { pad: Pad; at: number }>();
+  const pads = new Map<number, { pad: Pad; at: number; tap: boolean }>();   // tap: 아직 걸음에 쓰이지 않은 짧은 확인 누름
   let track: Track = newTrack();
   let cam: Camera | undefined, raf = 0, last = performance.now(), acc = 0, ticks = 0, sent = 0, alive = true;
-  let hintUntil = last + 6000, ended = false, mathText = '', wasHost = l.isHost, hudKey = '', hostSeat = l.host;
+  let hintUntil = last + 6000, ended = false, mathText = '', wasHost = l.isHost, hudKey = '', hostSeat = l.host, myA = false;
 
   host.app.innerHTML = `<main class="arcade-root w-root w-play">
     <div class="w-stagebox"><canvas class="px w-canvas" width="${VIEW_W}" height="${VIEW_H}" aria-label="게임 화면"></canvas>
@@ -555,13 +555,19 @@ function openGame(p: Pack, si: number) {
     }
     if (k.isHost) {
       acc = Math.min(acc + dt, 0.1);
+      // 짧게 누른 확인은 걸음이 한 번도 돌지 않은 프레임에 읽히면 사라진다: 걸음이 돌 때까지 들고 있는다
+      myA ||= !!myPad.a;
+      const hostPad: Pad = { ...myPad, a: myA };
+      const ran = acc >= 1 / 60;
       while (acc >= 1 / 60) {
         const order = k.room.order, s0 = performance.now();
-        step(world, order.map(seat => { if (seat === k.me) return myPad; const g = pads.get(seat); return g && now - g.at < 1500 ? g.pad : NO_PAD; }), 1 / 60);
+        step(world, order.map(seat => { if (seat === k.me) return hostPad; const g = pads.get(seat); return g && now - g.at < 1500 ? (g.tap && !g.pad.a ? { ...g.pad, a: true } : g.pad) : NO_PAD; }), 1 / 60);
+        for (const g of pads.values()) g.tap = false;       // 손님의 짧은 확인(누름과 뗌이 걸음 한 번 사이에 함께 온 것)도 한 걸음은 쓰인다
         acc -= 1 / 60; ticks++;
         if (ticks % (world.won ? 30 : SNAP_EVERY) === 0) { netStats.snapBytes = k.sendSnap(toWire(world, order, k.room.run, ++sent)); netStats.snaps++; }
         netStats.stepMs += performance.now() - s0; netStats.steps++;
       }
+      if (ran) myA = false;
     } else {
       send(myPad, now);
       blend(world, track, now, dt);
@@ -593,7 +599,7 @@ function openGame(p: Pack, si: number) {
       if (link && link.host !== hostSeat) { hostSeat = link.host; if (!link.isHost) track = newTrack(); }
       hud();
     },
-    onPad(seat, pad) { pads.set(seat, { pad, at: performance.now() }); },
+    onPad(seat, pad) { pads.set(seat, { pad, at: performance.now(), tap: !!pad.a || !!pads.get(seat)?.tap }); },
     onSnap(wire) { if (link && !link.isHost && pushWire(track, wire, link.room.run, performance.now())) netStats.got++; },
     reorder(before, after) {
       for (let i = before.length - 1; i >= 0; i--) if (!after.includes(before[i])) removePlayer(world, i);
