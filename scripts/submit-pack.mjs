@@ -5,7 +5,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, hostname } from 'node:os';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const args = process.argv.slice(2);
@@ -26,6 +26,8 @@ const FILE_OK = /^(pack\.json|DESIGN\.md|stages\/\d{2}\.(json|map\.txt)|sprites\
 const MAX_FILE = 100_000, MAX_TOTAL = 300_000, MAX_COUNT = 120;
 const WORDS = { submitted: '운영자가 살펴보기를 기다리는 중', approved: '승인됨, 곧 실려요', publishing: '싣는 중', published: '실렸어요', rejected: '돌려보냄', failed: '싣다가 막힘(운영자가 보고 있어요)' };
 
+// 도름스 화면에 보일 이 컴퓨터의 이름. 컴퓨터 이름에는 실명이 들기 쉬워 운영체제 종류만 보낸다
+const DEVICE = win ? '윈도우 컴퓨터' : process.platform === 'darwin' ? '맥 컴퓨터' : '리눅스 컴퓨터';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 // 서버가 준 글을 터미널에 찍기 전에 제어 문자를 지운다(화면을 속이는 글자가 섞이지 않게)
 const plain = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').trim().slice(0, max);
@@ -44,7 +46,7 @@ const readKey = () => { try { const k = readFileSync(KEY_FILE, 'utf8').trim(); r
 async function link() {
   const key = 'dorms_pat_' + randomBytes(32).toString('base64url');
   const tokenHash = createHash('sha256').update(key).digest('hex');
-  const made = await call('/api/world/link', { method: 'POST', body: { tokenHash, device: hostname().slice(0, 60) } });
+  const made = await call('/api/world/link', { method: 'POST', body: { tokenHash, device: DEVICE } });
   if (made.status === 429) stop('연결을 너무 자주 시도했어요. 10분쯤 뒤에 다시 해 주세요.');
   const code = String(made.data.code ?? ''), url = `${ORIGIN}/world/link`;   // 여는 주소는 서버가 준 것을 쓰지 않고 여기서 정한다
   if (made.status !== 200 || !/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code)) stop(`도름스가 연결을 받지 못했어요(${made.status}). 잠시 뒤 다시 해 주세요.`);
