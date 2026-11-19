@@ -1,0 +1,111 @@
+/**
+ * 도름스 월드 방 서버 (Cloudflare Workers + Durable Objects).
+ *
+ * 방 하나가 Durable Object 하나다(방 코드로 찾는다). 공개 방 목록을 맡는 Durable Object 가 하나 더 있다.
+ * 저장하지 않는다: 자리 번호, 조작 신호, 세계 요약, 방 정보만 지나간다. 연결이 모두 끊기면 방은 사라진다.
+ * 규칙(자리 배정, 방장 넘기기, 크기·빈도 상한, 글 검사)은 platform/room-rules.ts 에 있고 여기는 그것을 Workers 에 잇기만 한다.
+ *
+ *   GET /room/<방 코드>?mode=create|join&view=play|pad|auto&id=<창 번호>&pub=1&big=1   (WebSocket)
+ *   GET /public                                                                      (열려 있는 공개 방 목록)
+ */
+import { DurableObject } from 'cloudflare:workers';
+import { validRoomCode } from '../../platform/room-code';
+import { PublicList, RoomCore, originAllowed, readJoinQuery, type PublicRoom, type Saved } from '../../platform/room-rules';
+
+export interface Env {
+  ROOM: DurableObjectNamespace<Room>;
+  LOBBY: DurableObjectNamespace<Lobby>;
+  /** 같은 와이파이의 휴대폰으로 시험할 때만: 쉼표로 나눈 주소들(예: http://192.168.0.5:5320). 운영에서는 비워 둔다. */
+  EXTRA_ORIGINS?: string;
+}
+
+const extraOrigins = (env: Env) => (env.EXTRA_ORIGINS ?? '').split(',').map(s => s.trim()).filter(Boolean);
+const text = (body: string, status: number, headers: Record<string, string> = {}) =>
+  new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store', ...headers } });
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url), origin = request.headers.get('Origin');
+    const allowed = originAllowed(origin, extraOrigins(env));
+
+    if (url.pathname === '/public') {
+      const cors: Record<string, string> = allowed ? { 'Access-Control-Allow-Origin': origin!, Vary: 'Origin' } : { Vary: 'Origin' };
+      if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...cors, 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Max-Age': '600' } });
+      if (request.method !== 'GET') return text('GET 만 받아요', 405, cors);
+      if (origin && !allowed) return text('이 주소에서는 쓸 수 없어요', 403, cors);
+      const list = await env.LOBBY.getByName('lobby').list();
+      return new Response(JSON.stringify(list), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store', ...cors } });
+    }
+
+    const m = /^\/room\/([A-Z0-9]{6})$/.exec(url.pathname);
+    if (m) {
+      if (!validRoomCode(m[1])) return text('방 코드를 확인해 주세요', 400);
+      if (request.method !== 'GET' || request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return text('WebSocket 으로 연결해 주세요', 426);
+      if (!allowed) return text('이 주소에서는 쓸 수 없어요', 403);
+      return env.ROOM.getByName(m[1]).fetch(request);
+    }
+    return text('도름스 월드 방 서버', url.pathname === '/' ? 200 : 404);
+  },
+} satisfies ExportedHandler<Env>;
+
+export class Room extends DurableObject<Env> {
+  private core: RoomCore<WebSocket>;
+  private joining: WebSocket | null = null;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.core = new RoomCore<WebSocket>({
+      send: (ws, body) => { try { ws.send(body); } catch { /* 이미 끊긴 연결 */ } },
+      close: (ws, code, reason) => {
+        const shut = () => { try { ws.close(code, reason); } catch { /* 이미 끊긴 연결 */ } };
+        // 막 받아들인 연결은 응답(101)을 돌려준 뒤에 끊어야 끊김이 상대에게 끝까지 전해진다
+        if (ws === this.joining) this.ctx.waitUntil(scheduler.wait(20).then(shut)); else shut();
+      },
+      save: (ws, saved) => { try { ws.serializeAttachment(saved); } catch { /* 이미 끊긴 연결 */ } },
+      lobby: (code, room) => { this.ctx.waitUntil(this.env.LOBBY.getByName('lobby').report(code, room).catch(() => undefined)); },
+    });
+    // 잠들었다 깬 방: 살아 있는 연결에 붙여 둔 값으로 자리와 방 정보를 되살린다
+    for (const ws of this.ctx.getWebSockets()) {
+      const saved = ws.deserializeAttachment() as Saved | null;
+      if (saved) this.core.restore(ws, saved);
+    }
+    // 연결을 두드려 보는 글('ping')에는 방을 깨우지 않고 답한다
+    this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url), code = url.pathname.split('/').pop() ?? '';
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    this.ctx.acceptWebSocket(server);
+    this.joining = server;
+    this.core.join(server, code, readJoinQuery(url.searchParams));   // 들어오지 못하면 까닭 번호를 알리고 끊는다
+    this.joining = null;
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    if (typeof message !== 'string') return;                         // 글이 아닌 것은 받지 않는다
+    const saved = ws.deserializeAttachment() as Saved | null;
+    if (saved) this.core.message(saved.seat, saved.key, message, Date.now());
+  }
+
+  async webSocketClose(ws: WebSocket, code: number, reason: string) {
+    this.gone(ws);
+    try { ws.close(code === 1005 || code === 1006 ? 1000 : code, reason); } catch { /* 이미 닫힘 */ }
+  }
+
+  async webSocketError(ws: WebSocket) { this.gone(ws); }
+
+  private gone(ws: WebSocket) {
+    const saved = ws.deserializeAttachment() as Saved | null;
+    if (saved) this.core.leave(saved.seat, saved.key);
+  }
+}
+
+export class Lobby extends DurableObject<Env> {
+  private rooms = new PublicList();
+  /** 방이 스스로 알린다: 공개 방이면 값, 닫혔거나 비공개가 되면 null. */
+  async report(code: string, room: PublicRoom | null) { this.rooms.report(code, room, Date.now()); }
+  async list(): Promise<PublicRoom[]> { return this.rooms.list(Date.now()); }
+}
