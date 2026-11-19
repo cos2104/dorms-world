@@ -121,16 +121,19 @@ export class RoomCore<S> {
   private toAll(text: string, but?: Conn<S>) { for (const c of this.conns.values()) if (c !== but) this.out.send(c.sock, text); }
   private who() { this.toAll(JSON.stringify({ t: 'who', host: this.hostSeat, seats: this.seats() })); }
   /**
-   * 공개 방 목록에 알린다. 비공개 방은 공개였다가 바뀐 그 한 번만(내리기), 공개 방은 달라졌을 때와 10초마다.
-   * 한 방이 목록을 두드리는 횟수는 1초에 한 번을 넘지 않는다(밀린 것은 방장의 다음 살아 있음 알림 때 간다).
+   * 공개 방 목록에 지금 상태를 알린다: 공개 방이면 값, 비공개이거나 빈 방이면 내리기(null).
+   * - 목록이 이 방을 어떻게 알고 있는지 모를 때(방이 막 생겼거나 잠들었다 깬 때, told 가 '')는 비공개여도 한 번 내린다.
+   *   같은 코드의 옛 공개 방이나, 잠들기 전의 공개 상태가 목록에 남아 있을 수 있어서다.
+   * - 달라진 것이 없으면 다시 알리지 않는다. 공개 방만 10초마다 살아 있음을 알린다(목록은 30초 뒤 지운다).
+   * - 올리기든 내리기든, 한 방이 목록을 두드리는 것은 1초에 한 번까지다(공개와 비공개를 번갈아 바꿔도 같다).
+   *   밀린 마지막 상태는 방장의 다음 살아 있음 알림 때 간다. 다만 마지막 사람이 나가 빈 방은 미루지 않고 바로 내린다(뒤에 알릴 사람이 없다).
    */
   private report() {
     if (!this.out.lobby || !this.code) return;
     const room = this.info.pub && this.conns.size > 0 ? { code: this.code, pack: this.info.pack, stage: this.info.stage, count: this.conns.size } : null;
-    const now = JSON.stringify(room);
-    if (!room) { if (this.told && this.told !== 'null') { this.told = 'null'; this.out.lobby(this.code, null); } else this.told = 'null'; return; }
-    const since = this.clock - this.toldAt;
-    if (this.told === now ? since < REPORT_KEEP : this.told !== '' && this.told !== 'null' && since < REPORT_GAP) return;
+    const now = JSON.stringify(room), since = this.clock - this.toldAt;
+    if (this.told === now) { if (!room || since < REPORT_KEEP) return; }
+    else if (this.told !== '' && since < REPORT_GAP && this.conns.size > 0) return;
     this.told = now; this.toldAt = this.clock;
     this.out.lobby(this.code, room);
   }

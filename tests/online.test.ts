@@ -458,6 +458,46 @@ describe('방의 규칙(room-rules)', () => {
     expect(r.lobby.length, '비공개 방은 내린 뒤로 목록을 두드리지 않는다').toBe(0);
   });
 
+  it('공개와 비공개를 마구 번갈아 바꿔도 목록을 두드리는 것은 1초에 한 번까지고, 마지막 상태는 다음 살아 있음 알림 때 맞춰진다', () => {
+    const r = room();
+    const a = r.enter('방장', { mode: 'create', pub: true }, 0);
+    r.lobby.length = 0;
+    let n = 0;
+    for (let ms = 1000; ms < 6000; ms += 25) r.say(a, { t: 'room', room: { ...INFO, pub: n++ % 2 === 0, run: n } }, ms);   // 초당 40번, 5초
+    expect(a.closed).toBeNull();
+    expect(r.lobby.length).toBeLessThanOrEqual(6);
+    // 마지막으로 보낸 것은 비공개(pub: false)다. 밀려 있었더라도 다음 알림 때 목록에서 내려간다
+    expect(r.core.info.pub).toBe(false);
+    r.say(a, { t: 'hb' }, 7100);
+    expect(r.lobby[r.lobby.length - 1]).toEqual([CODE, null]);
+    const calls = r.lobby.length;
+    r.say(a, { t: 'hb' }, 12_000); r.say(a, { t: 'hb' }, 30_000);
+    expect(r.lobby.length).toBe(calls);
+  });
+
+  it('목록이 이 방을 어떻게 알고 있는지 모를 때는(방이 막 생겼거나 잠들었다 깼을 때) 비공개 방이 한 번은 내리라고 알린다', () => {
+    // 새로 만든 비공개 방: 같은 코드의 옛 공개 방이 목록에 남아 있을 수 있으므로 한 번 내린다
+    const fresh = room();
+    const h = fresh.enter('비공개 방장', { mode: 'create' }, 0);
+    expect(fresh.lobby).toEqual([[CODE, null]]);
+    for (let ms = 1000; ms < 4000; ms += 25) fresh.say(h, { t: 'hb' }, ms);
+    expect(fresh.lobby.length, '그 뒤로는 두드리지 않는다').toBe(1);
+    // 공개였다가 비공개로 바뀐 방이 잠들었다 깼다: 목록에는 아직 공개로 남아 있을 수 있다
+    const r = room();
+    const a = r.enter('방장', { mode: 'create', pub: true }, 0);
+    r.say(a, { t: 'room', room: { ...INFO, pub: false } }, 5000);
+    const woke = room();
+    woke.core.restore(a, a.saved!);
+    expect(woke.core.info.pub).toBe(false);
+    woke.core.message(a.saved!.seat, a.saved!.key, '{"t":"hb"}', 60_000);
+    expect(woke.lobby).toEqual([[CODE, null]]);
+    // 공개 방이 잠들었다 깨면 다음 알림 때 다시 올린다
+    const pubRoom = room(), b = pubRoom.enter('공개 방장', { mode: 'create', pub: true }, 0), again = room();
+    again.core.restore(b, b.saved!);
+    again.core.message(b.saved!.seat, b.saved!.key, '{"t":"hb"}', 60_000);
+    expect(again.lobby).toEqual([[CODE, { code: CODE, pack: '', stage: -1, count: 1 }]]);
+  });
+
   it('한 방이 공개 방 목록을 두드리는 것은 1초에 한 번까지다(방장이 마구 보내도)', () => {
     const r = room();
     const a = r.enter('방장', { mode: 'create', pub: true }, 0);
@@ -468,7 +508,7 @@ describe('방의 규칙(room-rules)', () => {
     expect(r.lobby.length).toBeGreaterThanOrEqual(4);
     const quiet = room(), b = quiet.enter('비공개 방장', { mode: 'create' }, 0);
     for (let ms = 1000; ms < 4000; ms += 25) quiet.say(b, { t: 'hb' }, ms);
-    expect(quiet.lobby.length, '비공개 방은 한 번도 두드리지 않는다').toBe(0);
+    expect(quiet.lobby, '비공개 방은 처음 한 번 내리라고만 알린다').toEqual([[CODE, null]]);
   });
 
   it('게임 화면과 조작기를 바꾸는 것은 1초에 한 번까지만 모두에게 알린다', () => {
