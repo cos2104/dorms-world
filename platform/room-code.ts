@@ -1,6 +1,5 @@
-/** 방 코드: 헷갈리는 글자(0 O 1 I L)를 뺀 여섯 글자. 연결 꾸러미 없이 쓸 수 있게 따로 둔다. */
+/** 방 코드: 헷갈리는 글자(0 O 1 I L)를 뺀 여섯 글자. 화면과 방 서버가 함께 쓰도록 다른 것에 기대지 않는다. */
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-export const roomsAvailable = () => !!import.meta.env.VITE_ROOM_URL && !!import.meta.env.VITE_ROOM_KEY;
 export function newRoomCode() {
   const a = new Uint8Array(6);
   crypto.getRandomValues(a);

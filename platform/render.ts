@@ -69,7 +69,8 @@ export function cameraFor(w: World, me: number | null, prev?: Camera): Camera {
     const lo = Math.min(...xs), hi = Math.max(...xs) + 22;
     cx = (lo + hi) / 2;
     scale = Math.min(1, Math.max(VIEW_W / sw, 0.5, VIEW_W / (hi - lo + 240)));
-  } else if (w.stage.door) cx = w.stage.door.x + T;
+  } else if (!w.players.length) cx = w.stage.spawn.x;   // 아직 아무도 없는 큰 화면은 시작 자리를 비춘다
+  else if (w.stage.door) cx = w.stage.door.x + T;
   const vw = VIEW_W / scale;
   let x = Math.max(0, Math.min(sw - vw, cx - vw / 2));
   if (sw < vw) x = (sw - vw) / 2;

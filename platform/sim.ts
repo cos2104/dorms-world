@@ -175,6 +175,26 @@ export function setPlayerCount(w: World, colors: string[]) {
   w.needs = w.stage.buttons.map(b => resolveNeed(b.need, n));
 }
 
+/**
+ * 가운데 사람이 나갔다: 그 도름이만 빼고 뒤 번호를 하나씩 당긴다(남은 도름이의 색과 자리는 그대로).
+ * 열쇠를 들고 있었으면 내려놓는다(땅을 딛고 있었으면 그 발밑에, 공중이었으면 처음 자리로).
+ * 든 구슬이나 상자는 꺼낸 접시로 돌아간다.
+ */
+export function removePlayer(w: World, i: number) {
+  const p = w.players[i];
+  if (!p) return;
+  if (w.key.holder === i) {
+    if (p.on && !p.inDoor) { w.key.holder = null; w.key.x = p.x + p.w / 2 - 16; w.key.y = p.y + p.h - 18; }
+    else dropKey(w);
+  } else if (w.key.holder != null && w.key.holder > i) w.key.holder--;
+  returnCarry(w, p);
+  w.players.splice(i, 1);
+  w.players.forEach((q, k) => { q.i = k; });
+  const n = w.players.length;
+  w.stage.crates.forEach((c, k) => { w.crates[k].need = resolveNeed(c.need, n); });
+  w.needs = w.stage.buttons.map(b => resolveNeed(b.need, n));
+}
+
 /** 들고 있던 것을 내려놓는다. 접시에서 꺼낸 것은 그 접시로 돌아간다(식이 사라지지 않게). */
 function returnCarry(w: World, p: Player) {
   const c = p.carry; p.carry = null;

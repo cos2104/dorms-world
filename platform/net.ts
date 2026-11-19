@@ -1,0 +1,218 @@
+/**
+ * 방 연결. 화면(DOM)을 쓰지 않는다: 브라우저에서도, 시험 스크립트(Node)에서도 그대로 돈다.
+ * 연결이 끊기면 몇 번 다시 붙어 보고, 그래도 안 되면 까닭을 알려 준다.
+ * 받은 글은 모두 남이 보낸 것이라 모양을 검사하고 나서 넘긴다.
+ */
+import { CLOSE, cleanPad, cleanRoomInfo, emptyRoom, MAX_SEATS, type PublicRoom, type RoomInfo, type View, type WirePad } from './room-rules';
+import { validRoomCode } from './room-code';
+import { readWire, type Wire } from './sync';
+import type { Pad } from './sim';
+
+export type Seat = { seat: number; view: View };
+/** 방에서 나오게 된 까닭. */
+export type Down = 'full' | 'none' | 'taken' | 'fast' | 'lost' | 'left';
+
+export type RoomEvents = {
+  /** 방에 들어왔다(다시 붙었을 때도 온다). */
+  hello?(link: RoomLink): void;
+  /** 사람이 들고 났거나 방장이 바뀌었다. */
+  who?(link: RoomLink): void;
+  /** 방 정보가 바뀌었다(방장이 스테이지를 고름). */
+  room?(link: RoomLink, before: RoomInfo): void;
+  /** 방장에게만: 손님의 조작 신호. */
+  pad?(seat: number, pad: Pad): void;
+  /** 손님에게만: 방장이 보낸 세계 요약. */
+  snap?(wire: Wire): void;
+  /** 연결이 끊겨 다시 붙는 중이다(몇 번째인지). 0 이면 다시 붙었다. */
+  retry?(attempt: number): void;
+  /** 방에서 나왔다(더는 다시 붙지 않는다). */
+  down?(why: Down): void;
+};
+
+export type JoinOptions = { create?: boolean; view?: View | 'auto'; pub?: boolean; big?: boolean; id?: string; retries?: number; socket?: typeof WebSocket };
+
+const RETRY_MS = [400, 900, 1800, 3500, 5000];
+const QUIET_MS = 25_000, PING_MS = 10_000, HB_MS = 5_000;
+
+export const wsBase = (base: string) => base.replace(/\/+$/, '').replace(/^http/, 'ws');
+
+export class RoomLink {
+  me = -1;
+  host = -1;
+  seats: Seat[] = [];
+  room: RoomInfo = emptyRoom();
+  open = false;
+  private ws: WebSocket | null = null;
+  private done = false;
+  private tries = 0;
+  private timers: ReturnType<typeof setTimeout>[] = [];
+  private beat: ReturnType<typeof setInterval> | null = null;
+  private heard = 0;
+  private wasHost = false;
+  private remake = false;
+
+  constructor(private base: string, readonly code: string, private opts: JoinOptions, private ev: RoomEvents) { this.connect(!!opts.create); }
+
+  get isHost() { return this.me >= 0 && this.me === this.host; }
+  get count() { return this.seats.length; }
+  viewOf(seat: number): View { return this.seats.find(s => s.seat === seat)?.view ?? 'play'; }
+
+  private connect(create: boolean) {
+    const o = this.opts, WS = o.socket ?? WebSocket;
+    const q = new URLSearchParams({ mode: create ? 'create' : 'join', view: o.view ?? 'auto' });
+    if (o.id) q.set('id', o.id);
+    if (create && (o.pub ?? this.room.pub)) q.set('pub', '1');
+    if (create && (o.big ?? this.room.big)) q.set('big', '1');
+    let ws: WebSocket;
+    try { ws = new WS(`${wsBase(this.base)}/room/${this.code}?${q}`); } catch { this.fail('lost'); return; }
+    this.ws = ws;
+    ws.onmessage = e => { if (ws === this.ws && typeof e.data === 'string') this.read(e.data); };
+    ws.onclose = e => { if (ws === this.ws) this.closed(e.code); };
+    // 보통은 닫힘 사건이 뒤따라 오지만, 붙지도 못한 연결에는 오지 않는 곳도 있어 잠깐 기다렸다 닫힌 것으로 친다
+    ws.onerror = () => { this.timers.push(setTimeout(() => { if (ws === this.ws && ws.readyState !== 1) this.closed(1006); }, 80)); };
+  }
+
+  private read(text: string) {
+    this.heard = Date.now();
+    if (text === 'pong') return;
+    let m: Record<string, unknown>;
+    try { m = JSON.parse(text); } catch { return; }
+    if (!m || typeof m !== 'object') return;
+    if (m.t === 'no') {                               // 들어가지 못했다: 까닭 번호를 받았으니 끊김을 기다리지 않는다
+      const ws = this.ws, code = typeof m.c === 'number' ? m.c : CLOSE.bad;
+      this.closed(code);
+      try { ws?.close(1000); } catch { /* 이미 닫힘 */ }
+    } else if (m.t === 'hi') {
+      const room = cleanRoomInfo(m.room);
+      if (!this.readSeats(m) || !room || !this.seats.some(s => s.seat === m.me)) return;
+      this.me = m.me as number;
+      const again = this.tries > 0 || this.open;
+      this.room = this.remake ? this.room : room;
+      this.open = true; this.tries = 0; this.wasHost = this.isHost;
+      this.beatStart();
+      if (this.remake) { this.remake = false; if (this.isHost) this.setRoom(this.room); }   // 혼자 있던 방을 다시 세웠다: 고르던 스테이지를 되살린다
+      if (again) this.ev.retry?.(0);
+      this.ev.hello?.(this);
+    } else if (m.t === 'who') {
+      if (!this.open || !this.readSeats(m)) return;
+      this.wasHost = this.isHost;
+      this.ev.who?.(this);
+    } else if (m.t === 'room') {
+      const room = cleanRoomInfo(m.room);
+      if (!this.open || !room || this.isHost) return;
+      const before = this.room; this.room = room;
+      this.ev.room?.(this, before);
+    } else if (m.t === 'p') {
+      const pad = cleanPad(m);
+      if (!this.isHost || !pad || typeof m.s !== 'number' || !Number.isInteger(m.s) || m.s < 0 || m.s >= MAX_SEATS) return;
+      this.ev.pad?.(m.s, { m: pad.m, j: !!pad.j, a: !!pad.a, jn: pad.n });
+    } else if (m.t === 's') {
+      if (this.isHost) return;
+      const wire = readWire(m.d);
+      if (wire) this.ev.snap?.(wire);
+    }
+  }
+
+  private readSeats(m: Record<string, unknown>) {
+    const raw = m.seats, host = m.host;
+    if (!Array.isArray(raw) || raw.length > MAX_SEATS || typeof host !== 'number') return false;
+    const seats: Seat[] = [];
+    for (const r of raw) {
+      if (!Array.isArray(r) || !Number.isInteger(r[0]) || r[0] < 0 || r[0] >= MAX_SEATS) return false;
+      seats.push({ seat: r[0], view: r[1] ? 'pad' : 'play' });
+    }
+    this.seats = seats; this.host = host;
+    return true;
+  }
+
+  private beatStart() {
+    if (this.beat) clearInterval(this.beat);
+    let n = 0;
+    this.heard = Date.now();
+    // 2.5초마다 본다: 방장은 5초마다 살아 있음을 알리고(공개 방 목록이 이 소식으로 유지된다), 모두 10초마다 연결을 두드려 본다
+    this.beat = setInterval(() => {
+      n++;
+      if (Date.now() - this.heard > QUIET_MS) { this.ws?.close(); return; }      // 한참 조용하면 죽은 연결로 보고 다시 붙는다
+      if (this.isHost && n % Math.round(HB_MS / 2500) === 0) this.raw('{"t":"hb"}');
+      if (n % Math.round(PING_MS / 2500) === 0) this.raw('ping');
+    }, 2500);
+  }
+
+  private closed(code: number) {
+    this.ws = null; this.open = false;
+    if (this.beat) { clearInterval(this.beat); this.beat = null; }
+    if (this.done) return;
+    if (code === CLOSE.full) return this.fail('full');
+    if (code === CLOSE.tooFast || code === CLOSE.tooBig) return this.fail('fast');
+    if (code === CLOSE.replaced) return this.fail('lost');
+    if (code === CLOSE.taken) {
+      if (this.remake) { this.remake = false; this.connect(false); return; }    // 그새 누가 남아 있었다: 손님으로 다시 들어간다
+      return this.fail('taken');
+    }
+    if (code === CLOSE.none) {
+      if (this.me < 0) return this.fail('none');                                 // 처음부터 없는 방
+      // 다시 붙는 중인데 방이 사라졌다(방 서버가 새로 떴다): 방장이었으면 같은 코드로 다시 세운다
+      if (this.wasHost && !this.remake) { this.remake = true; this.connect(true); return; }
+      // 손님이었으면 방장이 방을 다시 세울 때까지 몇 번 더 두드려 본다(아래로 이어진다)
+    }
+    const max = this.opts.retries ?? RETRY_MS.length;
+    if (this.me < 0 && code === CLOSE.bad) return this.fail('none');
+    if (this.tries >= max) return this.fail(code === CLOSE.none ? 'none' : 'lost');
+    const wait = RETRY_MS[Math.min(this.tries, RETRY_MS.length - 1)];
+    this.tries++;
+    this.remake = false;
+    this.ev.retry?.(this.tries);
+    this.timers.push(setTimeout(() => { if (!this.done) this.connect(this.me < 0 && !!this.opts.create); }, wait));
+  }
+
+  private fail(why: Down) {
+    if (this.done) return;
+    this.stop();
+    this.ev.down?.(why);
+  }
+  private stop() {
+    this.done = true; this.open = false;
+    for (const t of this.timers) clearTimeout(t);
+    if (this.beat) { clearInterval(this.beat); this.beat = null; }
+    const ws = this.ws; this.ws = null;
+    try { ws?.close(1000); } catch { /* 이미 닫힘 */ }
+  }
+
+  private raw(text: string) { if (this.open && this.ws?.readyState === 1) this.ws.send(text); }
+
+  /** 손님: 내 조작을 방장에게. */
+  sendPad(p: Pad) { const w: WirePad = { m: p.m, j: p.j ? 1 : 0, a: p.a ? 1 : 0, n: p.jn ?? 0 }; this.raw(JSON.stringify({ t: 'p', ...w })); }
+  /** 방장: 세계 요약을 모두에게. 보낸 글자 수를 돌려준다(재 보려고). */
+  sendSnap(wire: Wire) { const text = JSON.stringify({ t: 's', d: wire }); if (this.isHost) this.raw(text); return text.length; }
+  /** 방장: 방 정보를 바꾼다(내 쪽에는 바로 반영된다). */
+  setRoom(room: RoomInfo) { if (!this.isHost) return; this.room = room; this.raw(JSON.stringify({ t: 'room', room })); }
+  /** 손님: 게임 화면으로 볼지 조작기로만 쓸지. */
+  setView(v: View) { if (this.isHost) return; this.opts.view = v; const s = this.seats.find(x => x.seat === this.me); if (s) s.view = v; this.raw(JSON.stringify({ t: 'view', v })); }
+  /** 방장: 화면을 내려 두게 됐다. 게임 화면을 보는 다음 사람에게 방장을 넘긴다(없으면 그대로). */
+  yieldHost() { if (this.isHost) this.raw('{"t":"yield"}'); }
+  /** 방에서 나간다. */
+  leave() { if (this.done) return; this.stop(); this.ev.down?.('left'); }
+}
+
+export function joinRoom(base: string, code: string, opts: JoinOptions, ev: RoomEvents): RoomLink {
+  if (!validRoomCode(code)) throw new Error('방 코드는 여섯 글자예요.');
+  return new RoomLink(base, code, opts, ev);
+}
+
+/** 지금 열려 있는 공개 방. 받아 오지 못하면 빈 목록. */
+export async function listPublic(base: string, fetcher: typeof fetch = fetch): Promise<PublicRoom[]> {
+  try {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 4000);
+    const res = await fetcher(`${base.replace(/\/+$/, '')}/public`, { signal: ctl.signal, cache: 'no-store' });
+    clearTimeout(timer);
+    if (!res.ok) return [];
+    const list: unknown = await res.json();
+    if (!Array.isArray(list)) return [];
+    return list.flatMap((r): PublicRoom[] => {
+      if (!r || typeof r !== 'object' || !validRoomCode(String(r.code))) return [];
+      const pack = typeof r.pack === 'string' && /^([a-z0-9-]+\/[a-z0-9-]+)?$/.test(r.pack) ? r.pack : '';
+      const stage = Number.isInteger(r.stage) ? r.stage : -1, count = Number.isInteger(r.count) ? Math.max(0, Math.min(MAX_SEATS, r.count)) : 0;
+      return [{ code: r.code, pack, stage, count }];
+    }).slice(0, 50);
+  } catch { return []; }
+}
