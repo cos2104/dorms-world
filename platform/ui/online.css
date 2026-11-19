@@ -24,6 +24,7 @@
 .w-root .w-people { display: inline-flex; align-items: center; justify-content: center; gap: .3rem; }
 .w-root .w-people .ic { width: 14px; height: 14px; }
 @media (max-width: 560px) {
+  .w-root .w-publist .ar-row.w-pubrow { grid-template-columns: 5.6em minmax(0, 1fr) 4.2em; gap: .45rem; padding-inline: .5rem; }   /* 어디를 하고 있는지 적힌 가운데 칸에 자리를 더 준다 */
   .w-root .w-online-row > .ar-key { flex: 1 1 100%; }
   .w-root .w-codebox { flex: 1 1 100%; }
   .w-root .ar-input.w-codeinput { flex: 1 1 0; width: auto; min-width: 0; }
