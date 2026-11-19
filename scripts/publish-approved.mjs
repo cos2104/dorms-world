@@ -131,10 +131,12 @@ async function publish(item) {
 async function main() {
   if (!SECRET) { console.log('WORLD_PUBLISH_SECRET 이 없어 아무것도 하지 않아요.'); return; }
   const got = await dorms('GET');
-  const items = Array.isArray(got.items) ? got.items.slice(0, 1) : [];   // 한 번에 하나만 싣는다(검사와 배포를 기다리는 시간이 길다). 나머지는 다음 차례에
+  // 도름스는 가져간 것을 '싣는 중'으로 바꾸므로 받은 것은 차례로 싣는다. 다만 12분이 지나면 새로 시작하지 않는다(남은 것은 15분 뒤 도름스가 다시 내준다)
+  const items = Array.isArray(got.items) ? got.items.slice(0, 5) : [], began = Date.now();
   if (!items.length) { console.log('승인돼 기다리는 팩이 없어요.'); return; }
   let bad = 0;
   for (const item of items) {
+    if (Date.now() - began > 12 * 60_000) { console.log('  시간이 다 돼 남은 것은 다음 차례로 넘겨요.'); break; }
     console.log(`요청 ${Number(item?.number) || '?'}번 ${ID_OK.test(String(item?.packId)) ? item.packId : ''}`);
     const problem = problemOf(item);
     let out;
