@@ -1,0 +1,38 @@
+name: 승인된 팩 싣기
+
+# 도름스에서 운영자가 승인한 팩을 가져와 싣는다(scripts/publish-approved.mjs).
+# 5분마다 확인하고, 급할 때는 손으로(또는 운영자 맥의 감시 작업이) 바로 돌린다.
+# 이 작업은 쓰기 권한과 비밀값을 쓰므로 main 의 코드로만 돈다. 팩의 글은 자료로만 다룬다.
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: pack-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main' && github.repository == 'shinnanchanguk/dorms-world'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: 승인된 팩 가져와 싣기
+        env:
+          WORLD_PUBLISH_SECRET: ${{ secrets.WORLD_PUBLISH_SECRET }}
+          PUBLISH_AUTHOR: ${{ vars.PUBLISH_AUTHOR }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/publish-approved.mjs

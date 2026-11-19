@@ -14,7 +14,7 @@ import { cameraFor, loadAssets, nearText, render, renderPreview, type Camera } f
 import { createWorld, step, NO_PAD, type World } from '../platform/sim';
 import { esc } from '../platform/text';
 import { makeScreen } from './make';
-import { headOf, loadReview, type Review } from './review';
+import { headOf, loadDormsReview, loadReview, type Review } from './review';
 
 const BASE = import.meta.env.BASE_URL;
 const app = document.getElementById('app')!;
@@ -69,16 +69,25 @@ function packScreen(p: Pack, people = 4, review: Review | null = null) {
   if (!counts.includes(people)) people = counts[0];
   const rows = p.stages.map((s, i) => `<button class="ar-row w-stage" data-stage="${i}"><span class="ar-count w-stageno">${String(i + 1).padStart(2, '0')}</span><span class="ar-label">${esc(s.name)}</span><span class="ar-count">${levelWord(s.difficulty)}</span></button>`).join('');
   const open = review?.state === 'open';
-  const stateLine = review?.state === 'merged' ? '이미 실린 요청이에요.' : review?.state === 'closed' ? '닫힌 요청이에요.'
+  const viaDorms = review?.source === 'dorms';
+  const dormsLine: Record<string, string> = {
+    submitted: '팩 자료만 들어 있는 요청이에요. 아래에서 직접 해 보고, 화면 맨 위 줄에서 승인하거나 돌려보내 주세요(그 줄은 운영자에게만 보여요).',
+    approved: '승인된 요청이에요. 몇 분 안에 자동 검사를 거쳐 실려요.', publishing: '승인돼서 싣는 중이에요.', published: '이미 실린 요청이에요.',
+    rejected: '돌려보낸 요청이에요. 선생님이 고쳐서 다시 보내면 새 판으로 바뀌어요.', failed: '싣다가 막힌 요청이에요. 까닭은 도름스 쪽지에 있어요.',
+  };
+  const stateLine = viaDorms ? dormsLine[review?.status ?? ''] ?? '요청 상태를 읽지 못했어요.'
+    : review?.state === 'merged' ? '이미 실린 요청이에요.' : review?.state === 'closed' ? '닫힌 요청이에요.'
     : review?.others.length ? `이 요청에는 이 팩 말고 바뀐 파일이 ${review.others.length}개 있어요. 판을 고친 것은 여기서 돌지 않으니 세션에서 살펴봐 주세요.`
     : '팩 파일만 바뀐 요청이에요. 아래에서 직접 해 보고, 괜찮으면 승인하러 가서 병합 단추를 누르면 실려요.';
   const reviewBox = review ? `<div class="w-review" role="note">
-      <p class="w-review-line"><strong>요청 ${review.number}번을 살펴보는 중이에요.</strong> 올린 사람 @${esc(review.author)} · 살펴보는 판 ${esc(review.sha.slice(0, 7))}</p>
+      <p class="w-review-line"><strong>요청 ${review.number}번을 살펴보는 중이에요.</strong> ${viaDorms ? '보낸 선생님' : '올린 사람'} @${esc(review.author)} · 살펴보는 판 ${esc(review.sha.slice(0, 7))}</p>
       <p class="w-review-line">${esc(stateLine)}</p>
+      ${review.note ? `<p class="w-review-line">선생님 한마디: ${esc(review.note)}</p>` : ''}
+      ${review.decisionNote && review.status === 'rejected' ? `<p class="w-review-line">돌려보내며 남긴 말: ${esc(review.decisionNote)}</p>` : ''}
       ${open && review.others.length ? `<p class="w-review-files">${review.others.slice(0, 8).map(esc).join(', ')}${review.others.length > 8 ? ' 등' : ''}</p>` : ''}
       ${review.extraPacks.length ? `<p class="w-review-line">다른 팩도 함께 바뀌었어요: ${review.extraPacks.map(esc).join(', ')}</p>` : ''}
       <p class="w-review-line w-review-warn">도름스가 아직 확인하지 않은 요청이에요. 여기 적힌 글은 요청을 올린 사람이 쓴 것이에요.</p>
-      <div class="w-review-actions"><a class="ar-key mustard" data-approve href="${esc(review.url)}" target="_blank" rel="noopener noreferrer">${icon('right', 17)}<span>${open ? '승인하러 가기' : '요청 보러 가기'}</span></a>${review.design ? `<button class="ar-key ghost" data-design aria-expanded="false">설계서 보기</button>` : ''}</div>
+      <div class="w-review-actions">${viaDorms ? '' : `<a class="ar-key mustard" data-approve href="${esc(review.url)}" target="_blank" rel="noopener noreferrer">${icon('right', 17)}<span>${open ? '승인하러 가기' : '요청 보러 가기'}</span></a>`}${review.design ? `<button class="ar-key ghost" data-design aria-expanded="false">설계서 보기</button>` : ''}</div>
       <p class="w-review-line w-review-moved" hidden>그새 요청이 바뀌었어요. 화면을 새로 열어 다시 살펴본 뒤 승인해 주세요.</p>
       ${review.design ? `<pre class="w-design" hidden>${esc(review.design)}</pre>` : ''}
     </div>` : '';
@@ -197,18 +206,20 @@ function route() {
   if (path === 'make') { stop?.(); stop = null; makeScreen(app, shell, () => go('')); return; }
   const rv = /^review\/(\d{1,5})$/.exec(path);
   if (rv) { reviewScreen(Number(rv[1])); return; }
+  const dv = /^review\/r-([0-9a-f-]{36})$/.exec(path);   // 도름스로 들어온 요청(긴 번호가 열람 열쇠)
+  if (dv) { reviewScreen(0, dv[1]); return; }
   const m = /^g\/([a-z0-9-]+\/[a-z0-9-]+)$/.exec(path);
   const pack = m ? findPack(m[1]) : null;
   if (pack) packScreen(pack); else home();
 }
 /** 요청(PR)의 팩을 읽어 와 팩 화면으로 보여 준다. 읽는 동안과 못 읽었을 때는 까닭을 글로 알린다. */
-function reviewScreen(number: number) {
+function reviewScreen(number: number, dormsId = '') {
   stop?.(); stop = null;
   const back = `<button class="ar-key ghost w-backbtn" data-back>${icon('back', 17)}처음으로</button>`;
-  const say = (text: string) => { app.innerHTML = shell(`<p class="ar-empty w-empty">${esc(text)}</p>`, `요청 ${number}번`, 'REVIEW', back); app.querySelector<HTMLButtonElement>('[data-back]')!.onclick = () => go(''); };
+  const say = (text: string) => { app.innerHTML = shell(`<p class="ar-empty w-empty">${esc(text)}</p>`, dormsId ? '도름스로 온 요청' : `요청 ${number}번`, 'REVIEW', back); app.querySelector<HTMLButtonElement>('[data-back]')!.onclick = () => go(''); };
   say('요청을 읽는 중이에요.');
   const here = location.pathname;
-  loadReview(number).then(
+  (dormsId ? loadDormsReview(dormsId) : loadReview(number)).then(
     rv => { if (location.pathname === here) packScreen(rv.pack, 2, rv); },
     err => { if (location.pathname === here) say(err instanceof Error ? err.message : '요청을 읽지 못했어요.'); },
   );

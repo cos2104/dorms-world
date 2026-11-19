@@ -53,7 +53,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self'; connect-src 'self' https://api.github.com https://raw.githubusercontent.com; img-src 'self' data: blob: https://raw.githubusercontent.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-ancestors 'self' https://dorms.school https://www.dorms.school; base-uri 'none'; object-src 'none'; form-action 'none'"
+          "value": "default-src 'self'; script-src 'self'; connect-src 'self' https://api.github.com https://raw.githubusercontent.com https://dorms.school; img-src 'self' data: blob: https://raw.githubusercontent.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-ancestors 'self' https://dorms.school https://www.dorms.school; base-uri 'none'; object-src 'none'; form-action 'none'"
         },
         {
           "key": "Permissions-Policy",

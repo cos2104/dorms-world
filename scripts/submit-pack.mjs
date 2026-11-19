@@ -1,114 +1,150 @@
-// 만든 팩을 요청(PR)으로 올린다: npm run submit -- <교과>/<팩>
-// 하는 일: 검사 → 무엇이 바뀌었는지 가르기 → 내 GitHub 계정의 사본(fork)에 올리기 → 도름스 월드에 요청 만들기.
-// 이미 올린 요청이 있으면 같은 요청에 덧붙인다. 팩 폴더와(새 장치를 더했다면) 판 파일만 올리고 다른 파일은 올리지 않는다.
-import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+// 만든 팩을 도름스로 보낸다: npm run submit -- <교과>/<팩>      내 요청이 어떻게 됐는지: npm run submit -- --status
+// 하는 일: 검사 → 팩 파일 모으기 → (처음 한 번) 브라우저에서 도름스 로그인으로 이 컴퓨터를 허락 → 도름스에 보내기.
+// GitHub 계정은 필요 없다. 도름스가 받아 운영자에게 쪽지를 보내고, 운영자가 해 본 뒤 승인하면 도름스 월드와 오락실에 실린다.
+// 팩 폴더의 자료(글 파일)만 보낸다. 새 장치를 만들려고 판(platform/)을 고쳤다면 npm run submit:code 를 쓴다.
+import { spawnSync } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { homedir, hostname } from 'node:os';
 import { join } from 'node:path';
 
-const UPSTREAM = 'shinnanchanguk/dorms-world';
-const id = process.argv[2] ?? '';
+const args = process.argv.slice(2);
 const say = msg => console.log(msg);
 const stop = (msg, code = 1) => { console.error('\n' + msg); process.exit(code); };
-// 명령이 실패하면 긴 오류 대신 무엇을 하다 막혔는지와 마지막 줄만 보여 준다
-const run = (cmd, args, opts = {}) => {
-  try { return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }).trim(); }
-  catch (err) { stop(`'${cmd} ${args.slice(0, 2).join(' ')}' 에서 막혔어요.\n${String(err.stderr || err.message || '').trim().split('\n').slice(-3).join('\n')}\n인터넷 연결과 GitHub 로그인을 확인한 뒤 다시 해 주세요.`); }
-};
 const win = process.platform === 'win32';
-const tryRun = (cmd, args) => { const r = spawnSync(cmd, args, { encoding: 'utf8' }); return { ok: r.status === 0, out: (r.stdout ?? '').trim(), err: (r.stderr ?? '').trim() }; };
 
-if (!/^[a-z0-9-]+\/[a-z0-9-]+$/.test(id)) stop('어느 팩을 올릴지 적어 주세요. 예: npm run submit -- science/digestion');
-const dir = `packs/${id}`;
+// 보내는 곳. 시험할 때만 다른 주소를 쓴다(열쇠가 엉뚱한 곳으로 가지 않게 따로 켜야 한다)
+const ORIGIN = (() => {
+  const custom = process.env.DORMS_ORIGIN;
+  if (!custom || custom === 'https://dorms.school') return 'https://dorms.school';
+  if (process.env.DORMS_ALLOW_CUSTOM_ORIGIN !== '1') stop('DORMS_ORIGIN 이 도름스 주소가 아니에요. 시험용이라면 DORMS_ALLOW_CUSTOM_ORIGIN=1 을 함께 주세요.');
+  return custom.replace(/\/+$/, '');
+})();
+const KEY_DIR = join(win ? (process.env.APPDATA || join(homedir(), 'AppData', 'Roaming')) : join(homedir(), '.config'), 'dorms-world');
+const KEY_FILE = join(KEY_DIR, ORIGIN === 'https://dorms.school' ? 'key' : 'key-test');
+const FILE_OK = /^(pack\.json|DESIGN\.md|stages\/\d{2}\.(json|map\.txt)|sprites\/[a-z0-9-]{1,40}\.txt)$/;
+const MAX_FILE = 100_000, MAX_TOTAL = 300_000, MAX_COUNT = 120;
+const WORDS = { submitted: '운영자가 살펴보기를 기다리는 중', approved: '승인됨, 곧 실려요', publishing: '싣는 중', published: '실렸어요', rejected: '돌려보냄', failed: '싣다가 막힘(운영자가 보고 있어요)' };
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function call(path, { method = 'GET', key, body } = {}) {
+  let res;
+  try {
+    res = await fetch(ORIGIN + path, { method, redirect: 'error', headers: { ...(key ? { authorization: `Bearer ${key}` } : {}), ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(30_000) });
+  } catch (err) { stop(`도름스에 닿지 못했어요(${err.name === 'TimeoutError' ? '30초 동안 답이 없어요' : '연결 안 됨'}). 인터넷을 확인하고 다시 해 주세요.`); }
+  let data = null;
+  try { data = await res.json(); } catch { /* 글이 아닌 답 */ }
+  return { status: res.status, data: data && typeof data === 'object' ? data : {} };
+}
+const readKey = () => { try { const k = readFileSync(KEY_FILE, 'utf8').trim(); return /^dorms_pat_[A-Za-z0-9_-]{20,80}$/.test(k) ? k : null; } catch { return null; } };
+
+// 이 컴퓨터를 도름스 계정에 잇는다. 열쇠는 여기서 만들고 도름스에는 그 지문(해시)만 보낸다. 허락은 선생님이 브라우저에서 한다
+async function link() {
+  const key = 'dorms_pat_' + randomBytes(32).toString('base64url');
+  const tokenHash = createHash('sha256').update(key).digest('hex');
+  const made = await call('/api/world/link', { method: 'POST', body: { tokenHash, device: hostname().slice(0, 60) } });
+  if (made.status === 429) stop('연결을 너무 자주 시도했어요. 10분쯤 뒤에 다시 해 주세요.');
+  const code = String(made.data.code ?? ''), url = String(made.data.verifyUrl ?? '');
+  if (made.status !== 200 || !/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code) || !url.startsWith(ORIGIN + '/')) stop(`도름스가 연결을 받지 못했어요(${made.status}). 잠시 뒤 다시 해 주세요.`);
+  say(`\n처음 한 번, 이 컴퓨터가 선생님 이름으로 보내도 되는지 도름스에서 허락해 주세요.\n  1. 브라우저에 열리는 화면에서 도름스에 로그인해요(안 열리면 이 주소를 직접 열어요).\n     ${url}\n  2. 화면의 확인 글자가 ${code} 인지 보고 '허락'을 눌러요.\n기다리는 중이에요(10분 안에).`);
+  const opener = win ? ['cmd', ['/c', 'start', '', url]] : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
+  try { spawnSync(opener[0], opener[1], { stdio: 'ignore', timeout: 5000 }); } catch { /* 못 열면 주소를 직접 연다 */ }
+  const until = Date.now() + 10 * 60_000;
+  while (Date.now() < until) {
+    await sleep(3000);
+    const seen = await call(`/api/world/link?code=${encodeURIComponent(code)}&tokenHash=${tokenHash}`);
+    if (seen.data.status === 'approved') {
+      mkdirSync(KEY_DIR, { recursive: true, mode: 0o700 });
+      writeFileSync(KEY_FILE, key + '\n', { mode: 0o600 });
+      try { chmodSync(KEY_FILE, 0o600); } catch { /* 윈도우 */ }
+      say('허락됐어요. 다음부터는 이 과정 없이 바로 보내요.');
+      return key;
+    }
+    if (seen.data.status === 'denied') stop('도름스 화면에서 거절하셨어요. 보내려면 다시 실행해 주세요.');
+    if (seen.data.status === 'expired') stop('시간이 지나 연결이 끝났어요. 다시 실행해 주세요.');
+  }
+  stop('10분 동안 허락이 없어 멈췄어요. 다시 실행해 주세요.');
+}
+async function withKey(fn) {
+  let key = readKey() ?? await link();
+  let res = await fn(key);
+  if (res.status === 401) {   // 열쇠가 끝났거나 도름스에서 끊었다. 한 번만 다시 잇는다
+    try { rmSync(KEY_FILE, { force: true }); } catch { /* 없으면 그만 */ }
+    say('전에 받은 허락이 끝났어요. 다시 허락을 받을게요.');
+    key = await link();
+    res = await fn(key);
+  }
+  return res;
+}
+
+// ---------- 내 요청 보기 ----------
+if (args[0] === '--status') {
+  const res = await withKey(key => call('/api/world/packs', { key }));
+  if (res.status !== 200) stop(`요청 목록을 읽지 못했어요(${res.status}). ${res.data.message ?? ''}`);
+  const list = Array.isArray(res.data.requests) ? res.data.requests : [];
+  if (!list.length) { say('아직 보낸 요청이 없어요.'); process.exit(0); }
+  for (const r of list) {
+    say(`요청 ${r.number}번  ${r.packId}  「${String(r.title ?? '').slice(0, 40)}」  ${WORDS[r.status] ?? r.status}`);
+    if (r.note) say(`   운영자 한마디: ${String(r.note).slice(0, 500)}`);
+    if (r.status === 'published' && r.playUrl) say(`   게임 주소: ${r.playUrl}`);
+  }
+  process.exit(0);
+}
+
+// ---------- 보내기 ----------
+const id = args.find(a => !a.startsWith('--')) ?? '';
+const noteAt = args.indexOf('--note'), note = noteAt >= 0 ? String(args[noteAt + 1] ?? '').slice(0, 500) : '';
+if (!/^[a-z0-9-]{1,40}\/[a-z0-9-]{1,40}$/.test(id)) stop('어느 팩을 보낼지 적어 주세요. 예: npm run submit -- science/digestion\n(운영자에게 한마디를 붙이려면 뒤에 --note "한마디")');
+const dir = join('packs', ...id.split('/'));
 if (!existsSync(join(dir, 'pack.json'))) stop(`${dir}/pack.json 이 없어요. 팩 폴더 이름을 확인해 주세요.`);
-const meta = JSON.parse(readFileSync(join(dir, 'pack.json'), 'utf8'));
+let meta;
+try { meta = JSON.parse(readFileSync(join(dir, 'pack.json'), 'utf8')); } catch { stop(`${dir}/pack.json 을 읽지 못했어요. 쉼표와 따옴표를 확인해 주세요.`); }
 if (meta.id !== id) stop(`pack.json 의 id("${meta.id}")가 폴더 이름(${id})과 달라요.`);
 
-// 1. 검사(통과해야 올린다)
-say('1/4 검사하는 중이에요(팩 검사, 전체 시험, 빌드).');
-for (const [label, args] of [['팩 검사', ['run', 'check:packs']], ['전체 시험', ['test']], ['빌드', ['run', 'build']]]) {
-  const r = spawnSync(win ? 'npm.cmd' : 'npm', args, { encoding: 'utf8', shell: win });   // 윈도우의 npm 은 npm.cmd 라 셸을 거쳐야 돈다
+// 새 장치를 만들려고 판을 고쳤으면 이 길로는 못 보낸다(팩만 가면 운영 판에서 돌지 않는다)
+const git = spawnSync('git', ['status', '--porcelain', '--', 'platform', 'src', 'tests'], { encoding: 'utf8' });
+const touched = git.status === 0 ? git.stdout.split('\n').map(l => l.slice(3).trim()).filter(Boolean) : [];
+if (touched.length && !args.includes('--pack-only')) stop(`판을 고친 파일이 있어요(${touched.slice(0, 4).join(', ')}${touched.length > 4 ? ' 등' : ''}).\n이 명령은 팩 폴더의 자료만 보내요. 새 장치를 더한 것이라면 kit/DEVICE_GUIDE.md 의 '올리기'를 따라 npm run submit:code -- ${id} 로 올려 주세요(GitHub 계정이 필요해요).\n판은 실수로 바뀐 것이고 팩만 보내려면 뒤에 --pack-only 를 붙여 주세요.`);
+
+say('1/3 검사하는 중이에요(팩 검사, 전체 시험, 빌드).');
+for (const [label, a] of [['팩 검사', ['run', 'check:packs']], ['전체 시험', ['test']], ['빌드', ['run', 'build']]]) {
+  const r = spawnSync(win ? 'npm.cmd' : 'npm', a, { encoding: 'utf8', shell: win });   // 윈도우의 npm 은 npm.cmd 라 셸을 거쳐야 돈다
   if (r.error) stop(`npm 을 실행하지 못했어요(${r.error.message}). Node.js 가 설치돼 있는지 확인해 주세요.`);
-  if (r.status !== 0) stop(`${label}에서 걸렸어요. 아래를 고친 뒤 다시 올려 주세요.\n\n${((r.stdout ?? '') + (r.stderr ?? '')).split('\n').filter(l => /✗|×|FAIL|Error|걸렸|어요|→/.test(l)).slice(0, 25).join('\n')}`);
+  if (r.status !== 0) stop(`${label}에서 걸렸어요. 아래를 고친 뒤 다시 보내 주세요.\n\n${((r.stdout ?? '') + (r.stderr ?? '')).split('\n').filter(l => /✗|×|FAIL|Error|걸렸|어요|→/.test(l)).slice(0, 25).join('\n')}`);
 }
 
-// 2. 무엇이 바뀌었나(운영 저장소의 지금 모습과 견준다)
-say('2/4 바뀐 파일을 가르는 중이에요.');
-if (!tryRun('git', ['remote', 'get-url', 'upstream']).ok) {
-  const origin = tryRun('git', ['remote', 'get-url', 'origin']).out;
-  if (new RegExp(`[/:]${UPSTREAM}(\\.git)?$`).test(origin)) run('git', ['remote', 'add', 'upstream', origin]);
-  else run('git', ['remote', 'add', 'upstream', `https://github.com/${UPSTREAM}.git`]);
-}
-run('git', ['fetch', '-q', 'upstream', 'main']);
-// 내가 내려받은 뒤에 운영 저장소가 고친 파일을 '내가 바꾼 것'으로 잘못 잡지 않게, 갈라진 자리(merge-base)부터 견준다
-const base = tryRun('git', ['merge-base', 'HEAD', 'upstream/main']).out || 'upstream/main';
-const changed = [...new Set([
-  ...run('git', ['diff', '--name-only', base, '--']).split('\n'),
-  ...run('git', ['ls-files', '--others', '--exclude-standard']).split('\n'),
-])].filter(Boolean);
-const mine = changed.filter(f => f.startsWith(dir + '/'));
-const boardOk = /^(platform\/|tests\/|kit\/STAGE_FORMAT\.md$|kit\/patterns\/seeds\.md$|packs\/etc\/tutorial\/)/;
-const board = changed.filter(f => !f.startsWith(dir + '/') && boardOk.test(f));
-const never = changed.filter(f => !f.startsWith(dir + '/') && !boardOk.test(f));
-if (!mine.length) stop(`${dir} 에 바뀐 것이 없어요. 이미 실린 팩과 같아요.`);
-if (never.length) say(`  올리지 않는 파일(팩이나 판이 아닌 것): ${never.slice(0, 6).join(', ')}${never.length > 6 ? ' …' : ''}`);
-// 내가 고친 판 파일을 운영 저장소도 그새 고쳤으면, 그대로 올리면 운영의 새 내용을 옛 내용으로 덮게 된다
-if (board.length) {
-  const moved = run('git', ['diff', '--name-only', base, 'upstream/main', '--', ...board]).split('\n').filter(Boolean);
-  if (moved.length) stop(`운영 저장소의 판이 그새 바뀌었어요(${moved.slice(0, 4).join(', ')}). git pull 로 최신을 받아 합친 뒤 다시 올려 주세요.`);
-}
-const kind = board.length ? '장치 추가(판 변경 포함)' : '팩만';
-say(`  종류: ${kind}. 팩 파일 ${mine.length}개${board.length ? `, 판 파일 ${board.length}개` : ''}.`);
-if (board.length) say(`  함께 올라가는 판 파일:\n${board.map(f => '    ' + f).join('\n')}`);
+say('2/3 팩 파일을 모으는 중이에요.');
+const files = {}, skipped = [];
+const walk = rel => {
+  for (const name of readdirSync(join(dir, rel)).sort()) {
+    const path = rel ? `${rel}/${name}` : name, full = join(dir, path);
+    if (statSync(full).isDirectory()) { walk(path); continue; }
+    if (!FILE_OK.test(path)) { skipped.push(path); continue; }
+    const body = readFileSync(full, 'utf8');
+    if (Buffer.byteLength(body) > MAX_FILE) stop(`${path} 가 너무 커요(파일 하나는 100KB까지).`);
+    if (body.includes('\0') || body.includes('�')) stop(`${path} 가 글 파일이 아니에요. 팩에는 글 파일만 넣어요.`);
+    files[path] = body;
+  }
+};
+walk('');
+const names = Object.keys(files), total = names.reduce((n, k) => n + Buffer.byteLength(files[k]), 0);
+if (!files['DESIGN.md']) stop('설계서(DESIGN.md)가 없어요. 설계서를 먼저 쓰고 선생님 확인을 받은 뒤 보내요.');
+if (!names.some(n => n.endsWith('.map.txt'))) stop('스테이지가 하나도 없어요.');
+if (names.length > MAX_COUNT) stop(`파일이 너무 많아요(${names.length}개, 120개까지).`);
+if (total > MAX_TOTAL) stop(`팩이 너무 커요(${Math.round(total / 1000)}KB, 300KB까지).`);
+if (skipped.length) say(`  보내지 않는 파일: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? ' 등' : ''}${skipped.some(s => /\.(png|webp)$/.test(s)) ? '\n  (만든 사람 사진은 도름스 프로필 사진을 써요)' : ''}`);
 
-// 3. GitHub 준비
-say('3/4 GitHub 에 올릴 준비를 해요.');
-if (!tryRun('gh', ['--version']).ok) stop('GitHub 도구(gh)가 없어요. 설치한 뒤 다시 해 주세요.\n  맥: brew install gh\n  윈도우: winget install GitHub.cli\n그다음 한 번 로그인해요: gh auth login', 2);
-if (!tryRun('gh', ['auth', 'status']).ok) stop('GitHub 에 로그인돼 있지 않아요. 터미널에서 gh auth login 을 실행해 로그인한 뒤 다시 해 주세요(브라우저가 열려요).', 2);
-say('  git 이 GitHub 로그인을 쓰도록 맞춰요(gh auth setup-git. 이 컴퓨터의 git 설정에 한 줄이 더해져요).');
-tryRun('gh', ['auth', 'setup-git']);   // 안 하면 올릴 때 아이디와 비밀번호를 묻는다
-const login = run('gh', ['api', 'user', '--jq', '.login']);
-const owner = UPSTREAM.split('/')[0];
-let pushRemote = 'upstream', head = '';
-const branch = `pack/${id.replace('/', '--')}`;
-if (login !== owner) {
-  const fork = tryRun('gh', ['repo', 'fork', UPSTREAM, '--remote=false', '--clone=false']);
-  if (!fork.ok && !/already exists/i.test(fork.err + fork.out)) stop(`내 계정에 사본(fork)을 만들지 못했어요.\n${fork.err}`);
-  // 내 사본의 실제 이름을 읽는다(같은 이름의 다른 저장소에 밀지 않게, 도름스 월드에서 갈라져 나온 것만 쓴다)
-  const forkName = tryRun('gh', ['api', `repos/${UPSTREAM}/forks`, '--paginate', '--jq', `.[] | select(.owner.login == "${login}") | .full_name`]).out.split('\n')[0];
-  if (!forkName || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(forkName)) stop('내 계정에서 도름스 월드 사본(fork)을 찾지 못했어요. 잠시 뒤 다시 해 주세요.');
-  const url = `https://github.com/${forkName}.git`;
-  if (tryRun('git', ['remote', 'get-url', 'mine']).ok) run('git', ['remote', 'set-url', 'mine', url]); else run('git', ['remote', 'add', 'mine', url]);
-  pushRemote = 'mine'; head = `${login}:${branch}`;
-} else head = branch;
-
-// 4. 올릴 파일만 담은 가지를 만들어 올린다(지금 작업 폴더는 건드리지 않게 임시 색인을 쓴다)
-say('4/4 요청을 올려요.');
-const files = [...mine, ...board];
-const env = { ...process.env, GIT_INDEX_FILE: join(mkdtempSync(join(tmpdir(), 'world-submit-')), 'index') };
-run('git', ['read-tree', 'upstream/main'], { env });
-const existing = files.filter(f => existsSync(f)), gone = files.filter(f => !existsSync(f));
-if (existing.length) run('git', ['add', '--', ...existing], { env });
-if (gone.length) run('git', ['rm', '-q', '--cached', '--ignore-unmatch', '--', ...gone], { env });
-const tree = run('git', ['write-tree'], { env });
-const nick = String(meta.creator?.nickname ?? '').slice(0, 30);
-const message = `Add pack ${id}: ${String(meta.name).slice(0, 60)}`;
-// 커밋에는 컴퓨터의 이름이나 메일 대신 GitHub 아이디만 남긴다(누구나 볼 수 있는 곳에 올라간다)
-const uid = run('gh', ['api', 'user', '--jq', '.id']);
-const who = { GIT_AUTHOR_NAME: login, GIT_COMMITTER_NAME: login, GIT_AUTHOR_EMAIL: `${uid}+${login}@users.noreply.github.com`, GIT_COMMITTER_EMAIL: `${uid}+${login}@users.noreply.github.com` };
-const commit = run('git', ['commit-tree', tree, '-p', 'upstream/main', '-m', message], { env: { ...process.env, ...who } });
-run('git', ['push', '-q', '--force', pushRemote, `${commit}:refs/heads/${branch}`]);
-
-const stagesTable = (meta.stages ?? []).map(s => `| ${s.file} | ${s.name} | ${s.difficulty} |`).join('\n');
-const body = `## 팩\n- 이름: ${meta.name}\n- 교과: ${meta.family}\n- 만든 사람(도름스 닉네임): ${nick}\n- 인원: ${meta.players?.min}~${meta.players?.max}명\n- 종류: ${kind}\n\n${meta.educationalIntent ?? ''}\n\n| 번호 | 스테이지 | 난이도 |\n|---|---|---|\n${stagesTable}\n\n설계서: \`${dir}/DESIGN.md\`\n${board.length ? `\n## 판에서 바뀐 파일\n${board.map(f => `- \`${f}\``).join('\n')}\n` : ''}\n## 올리기 전 확인\n- 팩 검사, 전체 시험, 빌드 통과\n- 만든 사람이 자기 컴퓨터 화면에서 직접 해 봄\n\n검토 화면: https://dorms-world.vercel.app/world/review/<번호>\n`;
-const bodyFile = join(mkdtempSync(join(tmpdir(), 'world-pr-')), 'body.md'); writeFileSync(bodyFile, body);
-const title = `[팩] ${String(meta.name).slice(0, 40)} (${meta.family})`;
-const found = tryRun('gh', ['pr', 'list', '--repo', UPSTREAM, '--head', branch, '--author', login, '--state', 'open', '--json', 'number,url', '--jq', '.[0].url // ""']);
-let url = found.ok ? found.out : '';
-if (url) { tryRun('gh', ['pr', 'edit', url, '--title', title, '--body-file', bodyFile]); say('  이미 올린 요청이 있어 거기에 덧붙였어요.'); }
-else {
-  const made = tryRun('gh', ['pr', 'create', '--repo', UPSTREAM, '--head', head, '--base', 'main', '--title', title, '--body-file', bodyFile]);
-  if (!made.ok) stop(`요청을 만들지 못했어요.\n${made.err}`);
-  url = made.out.split('\n').pop();
+say(`3/3 도름스로 보내는 중이에요(파일 ${names.length}개, ${Math.max(1, Math.round(total / 1000))}KB).`);
+const sent = await withKey(key => call('/api/world/packs', { method: 'POST', key, body: { id, files, ...(note ? { note } : {}) } }));
+const d = sent.data, msg = typeof d.message === 'string' ? d.message.slice(0, 600) : '';
+if (sent.status === 200 && d.number) {
+  say(`\n보냈어요. 요청 ${d.number}번이에요${Number(d.revision) > 1 ? `(${d.revision}번째로 고쳐 보냄)` : ''}.\n운영자가 직접 해 본 뒤 승인하면 도름스 월드와 오락실에 선생님 이름으로 실려요. 결과는 도름스 쪽지로 와요.\n어떻게 됐는지 보려면: npm run submit -- --status`);
+  process.exit(0);
 }
-say(`\n올렸어요: ${url}\n운영자에게 도름스 쪽지가 가요. 운영자가 직접 해 보고 승인하면 dorms.school/world 에 실려요.${board.length ? '\n판을 고친 파일이 들어 있어서 운영자가 코드를 살펴본 뒤에 실려요(조금 더 걸려요).' : ''}`);
+if (sent.status === 422 && d.error === 'unit') stop(`${msg || '단원 이름을 도름스 오락실의 단원에서 찾지 못했어요.'}\n${Array.isArray(d.candidates) && d.candidates.length ? `이 가운데에서 골라 pack.json 의 units 에 그대로 적어 주세요:\n  ${d.candidates.slice(0, 40).map(String).join('\n  ')}` : '쓸 수 있는 이름은 npm run units 로 볼 수 있어요.'}`);
+if (sent.status === 409 && d.error === 'taken') stop(msg || `${id} 는 다른 선생님이 이미 쓰는 이름이에요. 팩 폴더 이름(과 pack.json 의 id)을 바꿔 다시 보내 주세요.`);
+if (sent.status === 409 && d.error === 'busy') stop(msg || '이 팩은 승인돼서 싣는 중이에요. 실린 뒤에 고친 판을 다시 보내 주세요.');
+if (sent.status === 429) stop(msg || '오늘 보낼 수 있는 횟수를 다 썼어요. 내일 다시 보내 주세요.');
+if (sent.status === 403) stop(msg || '보낼 수 있는 조건이 아직 안 됐어요. 도름스에서 교사 인증과 도름스 약속 동의를 확인해 주세요.');
+if (sent.status === 423) stop(msg || '도름스가 잠깐 글 올리기를 멈춰 두었어요. 조금 뒤에 다시 보내 주세요.');
+stop(`도름스가 받지 못했어요(${sent.status}). ${msg}`);

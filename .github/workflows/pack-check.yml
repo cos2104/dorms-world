@@ -2,6 +2,7 @@
 name: 팩 검사
 on:
   pull_request:
+  workflow_dispatch:   # '승인된 팩 싣기'가 자기가 연 요청의 가지에서 직접 돌린다
   push:
     branches: [main]
 permissions:

@@ -17,6 +17,10 @@ export type Review = {
   pack: Pack; design: string;
   others: string[];          // 팩 폴더 밖에서 바뀐 파일(있으면 판 변경이 들어 있다)
   extraPacks: string[];      // 함께 바뀐 다른 팩
+  source: 'github' | 'dorms'; // 어디로 들어온 요청인가. 도름스로 온 것은 팩 자료만 들어 있고 승인도 도름스에서 한다
+  status?: string;           // 도름스 요청의 지금 상태(submitted, approved, publishing, published, rejected, failed)
+  note?: string;             // 보낸 선생님이 운영자에게 남긴 한마디
+  decisionNote?: string;     // 운영자가 돌려보내며 남긴 한마디
 };
 
 async function json(url: string): Promise<unknown> {
@@ -82,6 +86,43 @@ export async function loadReview(number: number): Promise<Review> {
     pack: { ...pack, id }, design: (store.get('DESIGN.md') ?? '').slice(0, 20000),
     others: [...(unread ? ['(바뀐 파일이 많아 다 읽지 못했어요. 세션에서 내려받아 확인해 주세요)'] : []), ...new Set(touched.filter(n => !isPackFile(n) || !n.startsWith(dir)))].slice(0, 40),   // 이 팩의 허락된 파일이 아니면 모두 센다(다른 팩을 고치거나 지우는 것 포함)
     extraPacks: [...new Set(touched.map(n => /^packs\/([a-z0-9-]+\/[a-z0-9-]+)\//.exec(n)?.[1]).filter((v): v is string => !!v && v !== id))],
+    source: 'github',
+  };
+}
+
+const DORMS = 'https://dorms.school';
+const TEXT_OK = /^(pack\.json|DESIGN\.md|stages\/\d{2}\.(json|map\.txt)|sprites\/[a-z0-9-]{1,40}\.txt)$/;
+/** 도름스로 들어온 요청을 읽는다. 주소의 긴 번호가 곧 열람 열쇠다. 받은 글은 모두 보낸 사람이 쓴 것이라 자료로만 다룬다. */
+export async function loadDormsReview(id: string): Promise<Review> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) throw new Error('요청 주소를 확인해 주세요.');
+  let r: Response;
+  try { r = await fetch(`${DORMS}/api/world/requests/${id}`, { cache: 'no-store' }); } catch { throw new Error('도름스에서 요청을 읽지 못했어요. 인터넷을 확인하고 다시 열어 주세요.'); }
+  if (r.status === 404) throw new Error('그런 요청이 없어요.');
+  if (!r.ok) throw new Error(`요청을 읽지 못했어요(${r.status}).`);
+  const d = await r.json() as { number?: unknown; packId?: unknown; sha?: unknown; status?: unknown; title?: unknown; note?: unknown; decisionNote?: unknown; author?: { nickname?: unknown }; files?: unknown };
+  const packId = str(d.packId, 90);
+  if (!/^[a-z0-9-]{1,40}\/[a-z0-9-]{1,40}$/.test(packId)) throw new Error('요청의 팩 이름을 읽지 못했어요.');
+  const files = d.files && typeof d.files === 'object' && !Array.isArray(d.files) ? d.files as Record<string, unknown> : {};
+  const names = Object.keys(files);
+  if (!names.length || names.length > MAX_FILES) throw new Error('팩 파일 수가 맞지 않아요.');
+  const store = new Map<string, string>();
+  for (const n of names) {
+    const body = files[n];
+    if (!TEXT_OK.test(n) || typeof body !== 'string') throw new Error(`팩에 둘 수 없는 파일이 있어요: ${n.slice(0, 60)}`);
+    if (body.length > MAX_FILE) throw new Error(`${n}: 파일이 너무 커요.`);
+    store.set(n, body);
+  }
+  let meta: PackJson;
+  try { meta = JSON.parse(store.get('pack.json') ?? ''); } catch { throw new Error('pack.json 을 읽을 수 없어요.'); }
+  const sprites = names.map(n => /^sprites\/([a-z0-9-]+)\.txt$/.exec(n)?.[1]).filter((v): v is string => !!v);
+  if (sprites.length > 40) throw new Error('그림은 40개까지예요.');
+  const pack = buildPack(meta, rel => store.get(rel), null, sprites);
+  const status = str(d.status, 20);
+  return {
+    number: Number(d.number) || 0, title: str(d.title, 120), author: str(d.author?.nickname, 40), url: '',
+    state: status === 'published' ? 'merged' : status === 'rejected' ? 'closed' : 'open', sha: str(d.sha, 64),
+    pack: { ...pack, id: packId }, design: (store.get('DESIGN.md') ?? '').slice(0, 20000),
+    others: [], extraPacks: [], source: 'dorms', status, note: str(d.note, 500), decisionNote: str(d.decisionNote, 500),
   };
 }
 

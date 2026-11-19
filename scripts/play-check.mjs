@@ -1,6 +1,6 @@
 // 실제 브라우저에서 키를 눌러 도름이가 움직이는지 본다: node scripts/play-check.mjs [주소]
 import { chromium } from 'playwright';
-const base = process.argv[2] || 'http://localhost:5311/world/';
+const base = process.argv[2] || 'http://localhost:5310/world/';
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errors = [];

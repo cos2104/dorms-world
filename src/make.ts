@@ -14,7 +14,7 @@ const STEPS: [string, string][] = [
   ['내 AI 에 붙여 넣기', '내 컴퓨터에서 도는 코딩 AI(Claude Code, Codex 등)에 붙여 넣어요. AI 가 필요한 것을 내려받고 게임을 내 컴퓨터에 띄워요.'],
   ['함께 아이디어 내기', 'AI 가 수업 자료를 묻고, 아이디어를 몇 가지 내놓아요. 고르거나 섞거나 내 생각을 얹어 설계를 같이 정해요.'],
   ['직접 해 보기', 'AI 가 만든 스테이지를 내 컴퓨터 화면에서 바로 해 봐요. 고칠 곳을 말하면 그 자리에서 고쳐요.'],
-  ['요청 올리기', '마음에 들면 AI 에게 올려 달라고 해요. 운영자가 직접 해 보고 승인하면 여기에 실려요.'],
+  ['도름스로 보내기', '마음에 들면 AI 에게 보내 달라고 해요. 처음 한 번 도름스 화면에서 허락하면 돼요. 운영자가 직접 해 보고 승인하면 여기와 오락실에 내 이름으로 실려요.'],
 ];
 
 async function copyText(text: string, button: HTMLButtonElement, done: string) {
@@ -49,9 +49,9 @@ export function makeScreen(app: HTMLElement, shell: (inner: string, status: stri
         <pre class="w-prompt" tabindex="0" aria-label="안내문">${esc(PROMPT)}</pre>
         <div class="w-make-actions"><button class="ar-key mustard" data-copy>${icon('copy', 17)}<span>안내문 복사</span></button><button class="ar-key ghost" data-copy-url>${icon('copy', 17)}<span>내려받는 주소 복사</span></button></div>
         <p class="ar-kicker w-kicker">필요한 것</p>
-        <ul class="w-notes"><li>내 컴퓨터에서 도는 코딩 AI</li><li>Node.js 와 Git(없으면 AI 가 설치를 도와줘요)</li><li>요청을 올릴 때 쓸 GitHub 계정</li></ul>
+        <ul class="w-notes"><li>내 컴퓨터에서 도는 코딩 AI</li><li>Node.js 와 Git(없으면 AI 가 설치를 도와줘요)</li><li>도름스 계정(교사 인증을 마친 계정)</li></ul>
         <p class="ar-kicker w-kicker">알아 둘 것</p>
-        <ul class="w-notes"><li>수업 자료는 내 컴퓨터에서 내 AI 가 읽어요. 도름스로 올라가지 않아요.</li><li>내가 쓰는 AI 서비스에는 내용이 전달돼요. 학생 이름, 성적, 연락처가 든 파일은 빼고 주세요.</li><li>올라가는 것은 팩 폴더(설계서, 지도, 그림)와 도름스 닉네임이에요. 요청을 올린 GitHub 아이디도 함께 보여요. 누구나 볼 수 있으니 학생 이름과 사진은 넣지 마세요.</li><li>그림과 화면 부품은 정해진 물감과 모양으로만 만들어져서, 누가 만들어도 한 게임처럼 보여요.</li></ul>
+        <ul class="w-notes"><li>수업 자료는 내 컴퓨터에서 내 AI 가 읽어요. 도름스로 올라가지 않아요.</li><li>내가 쓰는 AI 서비스에는 내용이 전달돼요. 학생 이름, 성적, 연락처가 든 파일은 빼고 주세요.</li><li>가는 것은 팩 폴더의 글 파일(설계서, 지도, 그림)이고, 실릴 때 도름스 닉네임이 함께 보여요. 누구나 볼 수 있으니 학생 이름과 사진은 넣지 마세요.</li><li>그림과 화면 부품은 정해진 물감과 모양으로만 만들어져서, 누가 만들어도 한 게임처럼 보여요.</li></ul>
       </div>
     </div>`,
     '복사해서 내 AI 에 붙여 넣으면 시작돼요', 'MAKE',
