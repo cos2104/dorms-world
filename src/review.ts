@@ -38,11 +38,17 @@ const str = (v: unknown, max = 200) => (typeof v === 'string' ? v.slice(0, max) 
 
 export async function loadReview(number: number): Promise<Review> {
   if (!Number.isInteger(number) || number < 1 || number > 99999) throw new Error('요청 번호를 확인해 주세요.');
-  const pr = await json(`${API}${REPO}/pulls/${number}`) as { title?: unknown; html_url?: unknown; state?: unknown; merged?: unknown; user?: { login?: unknown }; head?: { sha?: unknown; repo?: { full_name?: unknown } | null } };
+  const pr = await json(`${API}${REPO}/pulls/${number}`) as { changed_files?: unknown; title?: unknown; html_url?: unknown; state?: unknown; merged?: unknown; user?: { login?: unknown }; head?: { sha?: unknown; repo?: { full_name?: unknown } | null } };
   const sha = str(pr.head?.sha, 40), source = str(pr.head?.repo?.full_name, 140);
   if (!/^[0-9a-f]{40}$/.test(sha) || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(source)) throw new Error('요청의 원본 저장소를 찾지 못했어요(지워졌을 수 있어요).');
-  const files = await json(`${API}${REPO}/pulls/${number}/files?per_page=100`) as { filename?: unknown; status?: unknown }[];
-  const names = (Array.isArray(files) ? files : []).filter(f => f.status !== 'removed').map(f => str(f.filename, 300));
+  const files = await json(`${API}${REPO}/pulls/${number}/files?per_page=100`) as { filename?: unknown; previous_filename?: unknown; status?: unknown }[];
+  const list = Array.isArray(files) ? files : [];
+  // 지우거나 이름을 바꾼 파일도 '바뀐 파일'로 센다(판 파일을 지우는 요청이 팩만 바꾼 것처럼 보이지 않게)
+  const touched = list.flatMap(f => [str(f.filename, 300), str(f.previous_filename, 300)]).filter(Boolean);
+  const names = list.filter(f => f.status !== 'removed').map(f => str(f.filename, 300));
+  // 바뀐 파일을 다 읽지 못했으면(100개 넘음) '팩만'이라고 말하지 않는다
+  const total = Number(pr.changed_files);
+  const unread = !Number.isInteger(total) || total !== list.length;
   const ids = [...new Set(names.map(n => /^packs\/([a-z0-9-]+\/[a-z0-9-]+)\//.exec(n)?.[1]).filter((v): v is string => !!v))];
   if (!ids.length) throw new Error('이 요청에는 팩이 없어요. 판만 고친 요청은 세션에서 내려받아 확인해 주세요.');
   const id = ids[0], dir = `packs/${id}/`;
@@ -64,6 +70,6 @@ export async function loadReview(number: number): Promise<Review> {
     number, title: str(pr.title, 120), author: str(pr.user?.login, 40), url: `https://github.com/${REPO}/pull/${number}`,
     state: pr.merged === true ? 'merged' : pr.state === 'open' ? 'open' : 'closed',
     pack: { ...pack, id }, design: (store.get('DESIGN.md') ?? '').slice(0, 20000),
-    others: names.filter(n => !n.startsWith('packs/')).slice(0, 40), extraPacks: ids.slice(1),
+    others: [...(unread ? ['(바뀐 파일이 많아 다 읽지 못했어요. 세션에서 내려받아 확인해 주세요)'] : []), ...new Set(touched.filter(n => !n.startsWith('packs/')))].slice(0, 40), extraPacks: ids.slice(1),
   };
 }

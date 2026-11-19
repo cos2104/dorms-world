@@ -17,9 +17,14 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
-          files=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100" --jq '.[].filename')
+          # 바뀐 파일을 끝까지 읽는다(100개씩 여러 쪽). 지우거나 이름을 바꾼 파일의 옛 이름도 함께 본다.
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)')
+          total=$(gh api "repos/$REPO/pulls/$PR" --jq '.changed_files')
+          read=$(gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" --jq '.[].filename' | wc -l | tr -d ' ')
           label="팩만"
           if echo "$files" | grep -qvE '^packs/[a-z0-9-]+/[a-z0-9-]+/'; then label="판 변경 포함"; fi
+          # 다 읽지 못했으면 가장 조심스러운 쪽으로 붙인다
+          if [ "$total" != "$read" ]; then label="판 변경 포함"; fi
           if echo "$files" | grep -qE '^(\.github/|scripts/|package(-lock)?\.json$|vercel\.json$|vite\.config\.ts$|index\.html$|public/)'; then label="실을 수 없는 파일"; fi
           for l in "팩만" "판 변경 포함" "실을 수 없는 파일"; do
             if [ "$l" = "$label" ]; then gh pr edit "$PR" --repo "$REPO" --add-label "$l"; else gh pr edit "$PR" --repo "$REPO" --remove-label "$l" 2>/dev/null || true; fi
