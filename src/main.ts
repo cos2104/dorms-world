@@ -142,7 +142,7 @@ function play(p: Pack, si: number, people: number, review: Review | null = null)
     <div class="w-stagebox"><canvas class="px w-canvas" width="${VIEW_W}" height="${VIEW_H}" aria-label="게임 화면"></canvas>
       <div class="lab-hud w-hud">
         <div class="w-hud-l"><span class="ar-count w-hide-s">연습</span><span class="ar-count">${icon('users', 14)}<span><span class="lab-num">${people}</span>명</span></span><span class="grow ar-kicker w-hudtitle"><span class="w-hide-s">${esc(p.name)} </span>${String(si + 1).padStart(2, '0')} ${esc(p.stages[si].name)}</span></div>
-        <div class="w-hud-r"><button class="ar-key ghost" data-retry aria-label="처음부터 다시 하기">${icon('redo', 17)}<span class="w-hide-s">다시 하기</span></button><button class="ar-key ghost" data-swap aria-label="다음 도름이로 바꾸기">${icon('swap', 17)}<span class="w-hide-s">도름이 바꾸기</span></button><button class="ar-key ghost" data-exit aria-label="나가기">${icon('door', 17)}<span class="w-hide-s">나가기</span></button></div>
+        <div class="w-hud-r"><button class="ar-key ghost" data-retry aria-label="처음부터 다시 하기">${icon('redo', 17)}<span class="w-hide-s">다시 하기</span></button><button class="ar-key ghost" data-swap aria-label="다음 도름이로 바꾸기">${icon('swap', 17)}<span class="w-hide-s">도름이 바꾸기</span></button><button class="ar-key ghost" data-all aria-pressed="false" aria-label="모든 도름이를 같이 움직이기">${icon('users', 17)}<span class="w-hide-s">다 같이</span></button><button class="ar-key ghost" data-exit aria-label="나가기">${icon('door', 17)}<span class="w-hide-s">나가기</span></button></div>
       </div>
       <p class="w-hint" role="status"></p>
       <p class="w-math" aria-live="polite" hidden></p>
@@ -153,7 +153,12 @@ function play(p: Pack, si: number, people: number, review: Review | null = null)
   const pad = new PadInput(); pad.mount(box);
   hintEl.textContent = stage.hint;
   const swap = () => { for (let k = 1; k <= people; k++) { const n = (mine + k) % people; if (!world.players[n].inDoor) { mine = n; break; } } };
-  const onKey = (e: KeyboardEvent) => { if (e.code === 'Tab') { e.preventDefault(); swap(); } };
+  // 한 기기 연습에서는 한 번에 한 도름이만 움직인다. '다 같이'를 켜면 모두가 내 조작을 따라 해서, 여럿이 밀어야 하는 상자도 혼자 시험해 볼 수 있다
+  let together = false;
+  const allBtn = app.querySelector<HTMLButtonElement>('[data-all]')!;
+  const toggleAll = () => { together = !together; allBtn.setAttribute('aria-pressed', String(together)); };
+  allBtn.onclick = e => { toggleAll(); (e.currentTarget as HTMLElement).blur(); };
+  const onKey = (e: KeyboardEvent) => { if (e.code === 'Tab') { e.preventDefault(); swap(); } else if (e.code === 'KeyG' && !e.repeat) toggleAll(); };
   window.addEventListener('keydown', onKey);
   // 단추를 누른 뒤 초점이 남아 있으면 엔터(확인)·스페이스(뛰기)가 그 단추를 다시 누르게 되므로 초점을 뗀다
   app.querySelector<HTMLButtonElement>('[data-swap]')!.onclick = e => { swap(); (e.currentTarget as HTMLElement).blur(); };
@@ -179,7 +184,7 @@ function play(p: Pack, si: number, people: number, review: Review | null = null)
   const frame = (now: number) => {
     raf = requestAnimationFrame(frame);
     acc = Math.min(acc + (now - last) / 1000, 0.1); last = now;
-    while (acc >= 1 / 60) { const pads = world.players.map((_, i) => (i === mine ? pad.read() : NO_PAD)); step(world, pads, 1 / 60); acc -= 1 / 60; }
+    while (acc >= 1 / 60) { const now = pad.read(), pads = world.players.map((_, i) => (together || i === mine ? now : NO_PAD)); step(world, pads, 1 / 60); acc -= 1 / 60; }
     if (world.players[mine]?.inDoor && !world.won) swap();
     cam = cameraFor(world, world.won ? null : mine, cam);
     render(c, world, cam, now, mine);

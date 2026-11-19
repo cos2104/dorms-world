@@ -12,7 +12,7 @@ const REPO = process.env.GITHUB_REPOSITORY || 'shinnanchanguk/dorms-world';
 const AUTHOR = process.env.PUBLISH_AUTHOR || '';   // "이름 <메일>". 배포가 막히지 않게 저장소 주인 이름으로 커밋하고, 만든 선생님은 커밋 글에 적는다
 const ID_OK = /^[a-z0-9-]{1,40}\/[a-z0-9-]{1,40}$/, UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const FILE_OK = /^(pack\.json|DESIGN\.md|stages\/\d{2}\.(json|map\.txt)|sprites\/[a-z0-9-]{1,40}\.txt)$/;
-const MAX_FILE = 100_000, MAX_TOTAL = 300_000, MAX_COUNT = 120, MAX_AVATAR = 300_000;
+const MAX_FILE = 100_000, MAX_TOTAL = 300_000, MAX_COUNT = 120;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }).trim();
 const tryly = (cmd, args) => { try { return sh(cmd, args); } catch { return ''; } };
@@ -60,24 +60,6 @@ const report = async (item, rest) => {
   return false;
 };
 
-/** 만든 사람 프로필 사진을 팩 안에 넣는다(바깥 주소를 팩에 남기지 않는다). 안 되면 사진 없이 간다. */
-async function avatarInto(dir, files, url) {
-  if (typeof url !== 'string' || !/^https:\/\//.test(url)) return;
-  try {
-    const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(15_000) });
-    const type = (res.headers.get('content-type') || '').split(';')[0].trim();
-    const ext = type === 'image/webp' ? 'webp' : type === 'image/png' ? 'png' : '';
-    if (!res.ok || !ext) return;
-    const buf = Buffer.from(await res.arrayBuffer());
-    const png = buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), webp = buf.subarray(0, 4).toString('latin1') === 'RIFF' && buf.subarray(8, 12).toString('latin1') === 'WEBP';
-    if (!buf.length || buf.length > MAX_AVATAR || (ext === 'png' ? !png : !webp)) return;
-    writeFileSync(join(dir, `avatar.${ext}`), buf);
-    const meta = JSON.parse(files['pack.json']);
-    meta.creator = { ...(meta.creator ?? {}), avatar: `avatar.${ext}` };
-    writeFileSync(join(dir, 'pack.json'), JSON.stringify(meta, null, 2) + '\n');
-  } catch { /* 사진은 없어도 된다 */ }
-}
-
 async function waitCheck(branch, head) {
   // 자동 검사를 이 가지에서 돌리고 끝날 때까지 기다린다(이 작업이 연 요청에는 검사가 저절로 붙지 않아서 직접 돌린다)
   sh('gh', ['workflow', 'run', 'pack-check.yml', '-R', REPO, '--ref', branch]);
@@ -114,7 +96,7 @@ async function publish(item) {
   if (item.mode === 'update' && !exists) return { result: 'failed', reason: `${item.packId} 를 고친 판인데 실려 있는 팩이 없어요.` };
   rmSync(dir, { recursive: true, force: true });
   for (const [name, body] of Object.entries(item.files)) { const to = join(dir, name); mkdirSync(dirname(to), { recursive: true }); writeFileSync(to, body); }
-  await avatarInto(dir, item.files, item.authorAvatar);
+  // 만든 사람 사진은 팩에 넣지 않는다: 얼굴일 수 있는 사진을 공개 저장소 기록에 영영 남기지 않으려는 것이고, 운영자가 살펴본 판에도 들어 있지 않다
   sh('git', ['add', '-A', '--', dir]);
   if (!tryly('git', ['status', '--porcelain', '--', dir])) return { result: 'published', commit: sh('git', ['rev-parse', 'origin/main']), same: true };   // 이미 같은 내용이 실려 있다(지난번에 알리기만 실패)
   const message = `${item.mode === 'create' ? 'Add' : 'Update'} pack ${item.packId} (request ${item.number})\n\n${title}\n만든 사람: ${who} (도름스)\n도름스 요청 ${item.number}번, ${item.revision}번째 판. 운영자가 살펴보고 승인함.`;
