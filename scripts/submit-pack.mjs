@@ -51,6 +51,7 @@ say(`  종류: ${kind}. 팩 파일 ${mine.length}개${board.length ? `, 판 파�
 say('3/4 GitHub 에 올릴 준비를 해요.');
 if (!tryRun('gh', ['--version']).ok) stop('GitHub 도구(gh)가 없어요. 설치한 뒤 다시 해 주세요.\n  맥: brew install gh\n  윈도우: winget install GitHub.cli\n그다음 한 번 로그인해요: gh auth login', 2);
 if (!tryRun('gh', ['auth', 'status']).ok) stop('GitHub 에 로그인돼 있지 않아요. 터미널에서 gh auth login 을 실행해 로그인한 뒤 다시 해 주세요(브라우저가 열려요).', 2);
+tryRun('gh', ['auth', 'setup-git']);   // git 이 GitHub 로그인을 그대로 쓰게 한다(안 하면 올릴 때 아이디와 비밀번호를 묻는다)
 const login = run('gh', ['api', 'user', '--jq', '.login']);
 const owner = UPSTREAM.split('/')[0];
 let pushRemote = 'upstream', head = '';
