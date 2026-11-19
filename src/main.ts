@@ -15,6 +15,7 @@ import { createWorld, step, NO_PAD, type World } from '../platform/sim';
 import { esc } from '../platform/text';
 import { makeScreen } from './make';
 import { headOf, loadDormsReview, loadReview, type Review } from './review';
+import * as online from './online';
 
 const BASE = import.meta.env.BASE_URL;
 const app = document.getElementById('app')!;
@@ -60,6 +61,7 @@ function home(family = '전체') {
   app.querySelectorAll<HTMLButtonElement>('[data-family]').forEach(b => b.onclick = () => home(b.dataset.family!));
   app.querySelectorAll<HTMLButtonElement>('[data-open]').forEach(b => b.onclick = () => go(`g/${b.dataset.open}`));
   app.querySelector<HTMLButtonElement>('[data-make]')!.onclick = () => go('make');
+  online.home();   // 방 서버 주소가 있을 때만: 방 만들기·방 코드·공개 방(방 안이면 방 줄)
 }
 
 // ---------- 팩 화면: 스테이지와 인원 고르기 ----------
@@ -110,7 +112,7 @@ function packScreen(p: Pack, people = 4, review: Review | null = null) {
     '스테이지를 고르면 바로 시작해요', `STAGE ${p.stages.length}`,
     `<button class="ar-key ghost w-backbtn" data-back>${icon('back', 17)}처음으로</button>`);
   app.querySelectorAll<HTMLButtonElement>('[data-people]').forEach(b => b.onclick = () => packScreen(p, Number(b.dataset.people), review));
-  app.querySelectorAll<HTMLButtonElement>('[data-stage]').forEach(b => b.onclick = () => play(p, Number(b.dataset.stage), people, review));
+  app.querySelectorAll<HTMLButtonElement>('[data-stage]').forEach(b => b.onclick = () => (online.inRoom() && !review ? online.start(p, Number(b.dataset.stage)) : play(p, Number(b.dataset.stage), people, review)));
   // 승인하러 가기 전에 요청이 그새 바뀌지 않았는지 본다(살펴본 뒤에 다른 것을 밀어 넣으면 알 수 있게). 확인이 안 되면 그대로 보낸다.
   const approve = app.querySelector<HTMLAnchorElement>('[data-approve]'), moved = app.querySelector<HTMLElement>('.w-review-moved');
   if (review && approve && moved && review.state === 'open') approve.addEventListener('click', e => {
@@ -127,6 +129,7 @@ function packScreen(p: Pack, people = 4, review: Review | null = null) {
   const designBtn = app.querySelector<HTMLButtonElement>('[data-design]'), designEl = app.querySelector<HTMLElement>('.w-design');
   if (designBtn && designEl) designBtn.onclick = () => { designEl.hidden = !designEl.hidden; designBtn.setAttribute('aria-expanded', String(!designEl.hidden)); designBtn.textContent = designEl.hidden ? '설계서 보기' : '설계서 접기'; };
   app.querySelector<HTMLButtonElement>('[data-back]')!.onclick = () => go('');
+  if (!review) online.pack();   // 방 안이면: 연습 인원 대신 방 줄(살펴보는 중인 요청의 팩은 이 기기에만 있어 방에서 함께 열지 않는다)
 }
 
 // ---------- 게임 화면 ----------
@@ -204,8 +207,9 @@ function play(p: Pack, si: number, people: number, review: Review | null = null)
 }
 
 // ---------- 주소 ----------
-function go(path: string) { history.pushState(null, '', `${BASE}${path}`); route(); }
+function go(path: string) { history.pushState(null, '', `${BASE}${path}${online.query()}`); route(); }
 function route() {
+  if (online.route()) return;   // 방에 들어가는 중이거나 손님이면 온라인 쪽이 화면을 그린다
   let path = '';
   try { path = decodeURIComponent(location.pathname.slice(BASE.length)).replace(/\/+$/, ''); } catch { /* 잘못된 주소는 첫 화면으로 */ }
   if (path === 'make') { stop?.(); stop = null; makeScreen(app, shell, () => go('')); return; }
@@ -230,6 +234,7 @@ function reviewScreen(number: number, dormsId = '') {
   );
 }
 window.addEventListener('popstate', route);
+online.init({ app, shell, go, route, setStop: fn => { stop?.(); stop = fn; } });
 
 Promise.all([loadAssets(), document.fonts.load('12px Galmuri11').catch(() => undefined)]).then(route, err => {
   app.innerHTML = `<main class="arcade-root w-root"><p class="w-empty">${esc(err instanceof Error ? err.message : '화면을 준비하지 못했어요.')} 새로 고침해 주세요.</p></main>`;

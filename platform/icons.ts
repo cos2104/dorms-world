@@ -24,6 +24,8 @@ const PATHS = {
   play: '<path d="M8 5v14l11-7Z"/>',
   crown: '<path d="m3 8 4 4 5-6 5 6 4-4-2 11H5Z"/>',
   timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2"/><path d="M9 2h6"/>',
+  screen: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/>',
+  pad: '<rect x="2" y="7" width="20" height="10" rx="5"/><path d="M7 10v4"/><path d="M5 12h4"/><circle cx="16.5" cy="12" r="1.2"/>',
 } as const;
 
 export type IconName = keyof typeof PATHS;
