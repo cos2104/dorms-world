@@ -130,7 +130,9 @@ async function publish(item) {
 
 async function main() {
   if (!SECRET) { console.log('WORLD_PUBLISH_SECRET 이 없어 아무것도 하지 않아요.'); return; }
-  const got = await dorms('GET');
+  let got;
+  try { got = await dorms('GET'); }
+  catch (err) { console.log(`도름스에서 목록을 받지 못했어요(${err.message}). 다음 차례에 다시 해요.`); return; }   // 도름스가 잠깐 안 될 때마다 실패 알림이 쌓이지 않게 조용히 끝낸다
   // 도름스는 가져간 것을 '싣는 중'으로 바꾸므로 받은 것은 차례로 싣는다. 다만 12분이 지나면 새로 시작하지 않는다(남은 것은 15분 뒤 도름스가 다시 내준다)
   const items = Array.isArray(got.items) ? got.items.slice(0, 5) : [], began = Date.now();
   if (!items.length) { console.log('승인돼 기다리는 팩이 없어요.'); return; }
