@@ -10,8 +10,13 @@
 .w-root .w-codebox > .ar-key { flex: none; min-height: 44px; white-space: nowrap; }
 .w-root .ar-input.w-codeinput { width: 9.5em; min-height: 44px; padding: .4rem .7rem; font-family: "VT323", "Galmuri11", monospace; font-size: 1.35rem; letter-spacing: .18em; text-transform: uppercase; }
 .w-root .ar-input.w-codeinput::placeholder { font-family: "Galmuri11", monospace; font-size: .9rem; letter-spacing: 0; }
-.w-root .w-online-note { margin-top: .35rem; }
-.w-root .w-public { margin-top: .2rem; }
+.w-root .w-online-note { margin-top: .45rem; }
+.w-root .w-online-note:empty { display: none; }          /* 알릴 것이 없을 때는 빈 줄을 두지 않는다 */
+.w-root .w-public { margin-top: .8rem; }
+/* 열린 방이 없을 때는 이름표와 안내를 한 줄에 */
+.w-root .w-public:has(.w-public-none) { display: flex; align-items: baseline; gap: .8rem; }
+.w-root .w-public:has(.w-public-none) > .w-kicker { margin: 0; flex: none; }
+.w-root .w-public:has(.w-public-none) > .w-publist { overflow: visible; }
 .w-root .w-publist { max-height: 11rem; }
 .w-root .w-publist .ar-row.w-pubrow { grid-template-columns: 6.4em minmax(0, 1fr) 5em; gap: .7rem; cursor: pointer; font: inherit; min-height: 44px; }
 .w-root .w-pubcode { text-align: center; font-size: 1.1rem; letter-spacing: .04em; overflow: hidden; }

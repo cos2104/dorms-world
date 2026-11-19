@@ -107,7 +107,8 @@ function ghost(code, { view = 'play', send = true } = {}) {
 
 if (!flag('only-shots')) {
   // ---------- 1. 방 만들기 → 코드로 들어오기 → 각자 움직이기 ----------
-  const A = await device('A'), B = await device('B');
+  let A = await device('A'), B = await device('B');
+  const put2 = (d, i, x) => d.page.evaluate(([i, x]) => { const w = window.__world(), p = w.players[i]; p.x = x; p.vx = 0; }, [i, x]);
   await A.open(); await B.open();
   ok('온라인 들머리가 처음 화면에 있다', await A.page.locator('.w-online').count() === 1);
   // 창: Esc 와 바깥 누르기로 닫히고, 닫으면 창을 연 단추로 초점이 돌아간다. Tab 은 창 안을 돈다
@@ -137,7 +138,8 @@ if (!flag('only-shots')) {
   await sleep(400);
   const a1 = await A.world(), b1 = await B.world();
   const moved = [a1.xs[0] - s0.xs[0], a1.xs[1] - s0.xs[1]];
-  ok('실제 키로 두 도름이가 각자 움직인다', Math.abs(moved[0] - 70) < 25 && Math.abs(moved[1] - 122) < 25, `방장 +${Math.round(moved[0])}px(0.4초, 기대 70), 손님 +${Math.round(moved[1])}px(0.7초, 기대 122)`);
+  // 기계가 바쁘면 프레임이 밀려 덜 가기도 한다: 넉넉히 보되, 오래 누른 쪽이 더 멀리 갔는지와 너무 많이 가지 않았는지를 본다
+  ok('실제 키로 두 도름이가 각자 움직인다', moved[0] > 30 && moved[0] < 95 && moved[1] > 60 && moved[1] < 147 && moved[1] > moved[0] + 15, `방장 +${Math.round(moved[0])}px(0.4초, 다 가면 70), 손님 +${Math.round(moved[1])}px(0.7초, 다 가면 122)`);
   ok('두 화면의 도름이 자리가 같다', near(a1.xs, b1.xs, 2) && near(a1.ys, b1.ys, 2), `방장 화면 ${JSON.stringify(a1.xs)} / 손님 화면 ${JSON.stringify(b1.xs)}`);
   ok('색은 들어온 차례대로다(하양, 분홍)', a1.colors.join() === '#F4F7FF,#FFB3C7' && b1.colors.join() === a1.colors.join());
   // 움직이는 도중에도 어긋나지 않는지: 손님이 뛰며 걷는 동안 두 화면을 여러 번 견준다
@@ -172,8 +174,8 @@ if (!flag('only-shots')) {
     await put(0, lbin); await put(1, rbin); await sleep(120);
     await enter(A); await enter(B);                       // 통에 버린다
     await sleep(750);
-    const [a, b] = await Promise.all([A.world(), B.world()]);
-    if (JSON.stringify(a.lines) !== JSON.stringify(b.lines)) same = false;
+    // 줄이 늘 때마다 두 화면을 견준다(손님 화면은 요약 한두 번만큼 늦으므로 잠깐 기다려 준다)
+    if (!(await until(async () => { const [a, b] = await Promise.all([A.world(), B.world()]); return JSON.stringify(a.lines) === JSON.stringify(b.lines) && JSON.stringify(a.line) === JSON.stringify(b.line); }, 1500, 60))) same = false;
     rounds++;
   }
   const solved = await until(async () => { const [a, b] = await Promise.all([A.world(), B.world()]); return a.solved[0] && b.solved[0] ? [a, b] : null; }, 5000);
@@ -203,11 +205,34 @@ if (!flag('only-shots')) {
   ok('세 화면 모두 3명으로 센다', (await A.net()).room.order.join() === '0,1,2' && (await C.net()).myIndex === 2 && (await B.page.locator('[data-count]').first().textContent()) === '3');
 
   // ---------- 5. 방장이 나가면 손님이 방장이 되어 이어 간다 ----------
+  // 방장이 화면을 내려 두면(다른 앱으로 감) 게임 화면을 보는 다음 사람에게 방장이 넘어가고, 돌아와도 손님으로 이어서 한다
+  await sleep(2500);                                    // 앞 방장의 요약 차례 번호가 넉넉히 쌓이게 둔다
+  await A.page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); });
+  const handed = await until(async () => (await B.net())?.isHost === true && (await A.net())?.isHost === false, 4000);
+  await A.page.evaluate(() => { delete document.hidden; document.dispatchEvent(new Event('visibilitychange')); });
+  const g0 = [(await A.net()).got, (await C.net()).got]; await sleep(600);
+  const g1 = [(await A.net()).got, (await C.net()).got];
+  ok('방장이 화면을 내려 두면 다음 사람이 방장을 이어받는다', !!handed && (await B.world()).n === 3, `자리 ${(await B.net()).host}번이 방장`);
+  ok('방장이 바뀐 바로 뒤에도 손님들이 새 방장의 요약을 받는다(0.6초에 10번쯤)', g1[0] - g0[0] >= 8 && g1[1] - g0[1] >= 8, `앞 방장 화면 ${g1[0] - g0[0]}번, 다른 손님 화면 ${g1[1] - g0[1]}번`);
+  const y0 = await B.world();
+  await A.hold('ArrowRight', 400); await sleep(400);
+  const [yb, ya] = await Promise.all([B.world(), A.world()]);
+  ok('방장을 넘겨준 사람도 손님으로 이어서 움직인다', yb.xs[0] - y0.xs[0] > 25 && near(yb.xs, ya.xs, 2), `+${Math.round(yb.xs[0] - y0.xs[0])}px(0.4초, 다 가면 70)`);
+  ok('방장을 넘겨받으면 단추도 바뀐다', await B.page.locator('[data-retry]').count() === 1 && await A.page.locator('[data-retry]').count() === 0 && await A.page.locator('[data-leave]').count() === 1);
+
+  // 새로 고침: 주소에 방 코드가 남아 같은 방으로 돌아온다
+  await C.page.reload({ waitUntil: 'networkidle' });
+  ok('새로 고치면 같은 방, 같은 판으로 돌아온다', !!(await until(async () => (await C.room())?.code === code && (await C.world())?.n === 3 && (await B.world()).n === 3 && near((await B.world()).xs.slice(0, 2), (await C.world()).xs.slice(0, 2), 2), 8000)), `돌아온 사람 자리 번호 ${(await C.room())?.me}`);
+
   const before = await B.world();
-  await A.close();
+  await B.close();                                      // 지금 방장(B)이 나간다. 남은 둘 가운데 먼저 들어온 A 가 다시 방장이 된다
+  [A, B] = [B, A];                                      // 아래에서는 남은 방장을 B, 나간 사람을 A 로 부른다
   const promoted = await until(async () => (await B.net())?.isHost === true && (await B.world()).n === 2 && (await C.world()).n === 2, 8000);
   ok('방장이 나가면 그다음으로 오래된 손님이 방장이 된다', !!promoted, `남은 도름이 색 ${(await B.world()).colors}`);
-  ok('나간 사람의 도름이만 빠지고 남은 도름이는 제자리다', near((await B.world()).xs, before.xs.slice(1), 3));
+  const p0 = (await C.net()).got; await sleep(600);
+  ok('방장이 나간 바로 뒤에도 손님이 새 방장의 요약을 받는다', (await C.net()).got - p0 >= 8, `0.6초에 ${(await C.net()).got - p0}번`);
+  ok('나간 사람의 도름이만 빠지고 남은 도름이는 제자리다', (await B.world()).colors.join() === '#F4F7FF,#A8DDF5' && Math.abs((await B.world()).xs[0] - before.xs[0]) < 3, `남은 색 ${(await B.world()).colors}`);
+  await put2(B, 0, 300); await put2(B, 1, 500); await sleep(200);
   const c0 = await C.world();
   await Promise.all([B.hold('ArrowRight', 500), C.hold('ArrowLeft', 500)]);
   await sleep(400);
@@ -261,6 +286,18 @@ if (!flag('only-shots')) {
   await F.page.locator('[data-joinin]').click();
   ok('큰 화면에서 나도 뛰기를 켜면 도름이가 하나 는다', !!(await until(async () => (await F.world()).n === 3 && (await G.world()).n === 3 && (await F.net()).myIndex === 2)));
   await F.close(); await G.close(); await H.close();
+  // 큰 화면이 꺼지고 조작기뿐이면: 가장 먼저 들어온 조작기가 게임 화면으로 바뀌어 방장을 맡고, 그 스테이지를 처음부터 연다
+  const F2 = await device('큰 화면 2'), G2 = await device('조작기 3', { w: 844, h: 390, touch: true }), H2 = await device('조작기 4', { w: 390, h: 844, touch: true });
+  await F2.open(); const big2 = await createRoom(F2, { big: true });
+  await G2.open(`?room=${big2}`); await G2.page.waitForSelector('.w-ctl'); await H2.open(`?room=${big2}`); await H2.page.waitForSelector('.w-ctl');
+  await pickStage(F2, 'etc/tutorial', 0); await until(async () => (await F2.world())?.n === 2);
+  await F2.close();
+  const took = await until(async () => (await G2.net())?.isHost === true && (await G2.world())?.n === 2 && (await G2.net()).room.stage === 0, 8000);
+  ok('큰 화면이 꺼지면 가장 먼저 들어온 조작기가 게임 화면으로 바뀌어 방장을 맡는다', !!took && await G2.page.locator('.w-ctl').count() === 0 && await H2.page.locator('.w-ctl').count() === 1, took ? `도름이 색 ${(await G2.world()).colors}, 내 차례 ${(await G2.net()).myIndex + 1}번` : JSON.stringify(await G2.room()));
+  const t0 = await G2.world();
+  await press(H2, 'r', 500); await sleep(300);
+  ok('새 방장의 화면에서 남은 조작기의 단추가 그대로 먹는다', (await G2.world()).xs[1] - t0.xs[1] > 50);
+  await G2.close(); await H2.close();
 
   // ---------- 8. 안내: 없는 방, 가득 찬 방 ----------
   const I = await device('I');

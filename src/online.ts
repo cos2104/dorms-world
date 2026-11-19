@@ -56,7 +56,10 @@ export function init(h: Host) {
   if (!available()) return;
   // 방장이 화면을 내려 두면(다른 앱으로 감) 게임이 멈춘다. 게임 화면을 보고 있는 다음 사람에게 방장을 넘긴다.
   document.addEventListener('visibilitychange', () => { if (document.hidden && game && link?.isHost) link.yieldHost(); });
-  window.addEventListener('pagehide', () => { link?.leave(); });
+  // 화면을 떠나면(닫기 · 새로 고침) 연결만 조용히 끊는다. 주소의 방 코드는 그대로 두어 새로 고치면 같은 방으로 돌아온다.
+  window.addEventListener('pagehide', () => { const l = link; if (!l) return; link = null; l.leave(); });
+  // 뒤로 가기로 되살아난 화면은 연결이 끊긴 채다: 주소를 보고 다시 들어간다
+  window.addEventListener('pageshow', e => { if (e.persisted) { shown = ''; host.route(); } });
 }
 
 export const inRoom = () => !!link;
@@ -298,6 +301,7 @@ function openDialog(label: string, badge: string, body: string, opener?: HTMLEle
   const before = opener ?? (document.activeElement as HTMLElement | null);
   const focusable = () => [...el.querySelectorAll<HTMLElement>('button, input, [href], [tabindex]:not([tabindex="-1"])')].filter(n => !n.hasAttribute('disabled') && n.offsetParent !== null);
   const onKey = (e: KeyboardEvent) => {
+    e.stopPropagation();                                  // 창이 떠 있는 동안 누른 키가 뒤의 게임(뛰기 · 확인)으로 새지 않게
     if (e.key === 'Escape') { e.preventDefault(); close(); return; }
     if (e.key !== 'Tab') return;
     const f = focusable(); if (!f.length) return;
@@ -479,7 +483,7 @@ function openGame(p: Pack, si: number) {
   const pads = new Map<number, { pad: Pad; at: number }>();
   let track: Track = newTrack();
   let cam: Camera | undefined, raf = 0, last = performance.now(), acc = 0, ticks = 0, sent = 0, alive = true;
-  let hintUntil = last + 6000, ended = false, mathText = '', wasHost = l.isHost, hudKey = '';
+  let hintUntil = last + 6000, ended = false, mathText = '', wasHost = l.isHost, hudKey = '', hostSeat = l.host;
 
   host.app.innerHTML = `<main class="arcade-root w-root w-play">
     <div class="w-stagebox"><canvas class="px w-canvas" width="${VIEW_W}" height="${VIEW_H}" aria-label="게임 화면"></canvas>
@@ -540,7 +544,11 @@ function openGame(p: Pack, si: number) {
     if (k.isHost !== wasHost) {
       wasHost = k.isHost;
       // 방장이 됐다: 마지막 요약에서 이어서 굴린다. 그 요약에 남아 있는 나간 사람의 도름이는 지금 차례에 맞춰 뺀다
-      if (k.isHost) { if (track.b && applyWire(world, track.b)) mine.reorder(wireSeats(track.b), k.room.order); reconcile(); acc = 0; }
+      if (k.isHost) {
+        if (track.b && applyWire(world, track.b)) mine.reorder(wireSeats(track.b), k.room.order);
+        sent = Math.max(sent, track.b?.n ?? 0);          // 요약의 차례 번호는 앞 방장의 것에 이어서 센다(손님이 '지난 요약'으로 버리지 않게)
+        reconcile(); acc = 0;
+      }
       track = newTrack(); pads.clear();
       if (ended) { ended = false; finishIfWon(); }
       hud();
@@ -580,7 +588,11 @@ function openGame(p: Pack, si: number) {
       if (game === mine) game = null;
       if (shown === 'game') shown = '';
     },
-    sync: hud,
+    sync() {
+      // 방장이 바뀌었으면 손님은 앞 방장의 요약 차례를 잊는다(새 방장의 첫 요약부터 받는다)
+      if (link && link.host !== hostSeat) { hostSeat = link.host; if (!link.isHost) track = newTrack(); }
+      hud();
+    },
     onPad(seat, pad) { pads.set(seat, { pad, at: performance.now() }); },
     onSnap(wire) { if (link && !link.isHost && pushWire(track, wire, link.room.run, performance.now())) netStats.got++; },
     reorder(before, after) {
