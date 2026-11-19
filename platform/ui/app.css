@@ -1,0 +1,168 @@
+/* 도름스 월드 화면 배치. 부품 모양은 arcade.css, 정렬 규칙은 world.css 가 맡고 여기는 자리만 잡는다. */
+html, body { margin: 0; min-height: 100%; background: #14285F; }
+body { word-break: keep-all; overflow-wrap: anywhere; }
+#app { min-height: 100dvh; }
+.w-root { min-height: 100dvh; }
+.w-root .ar-key .ic, .w-root .ar-play .ic { width: 17px; height: 17px; flex: none; display: block; }
+.w-root canvas.px { image-rendering: pixelated; display: block; width: 100%; height: 100%; }
+
+/* 교과 단추 줄: 18개라 여러 줄로 감는다 */
+.w-root .w-families { flex-wrap: wrap; overflow: visible; gap: .45rem; }
+.w-root .w-families > .ar-key { min-height: 40px; }
+.w-tabnum { min-width: 1.5ch; }
+
+.w-empty { padding: 2.5rem 1rem; text-align: center; color: #14285F; }
+
+/* 팩 화면 */
+.w-pack { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.5rem; margin-top: .6rem; }
+.w-pack-title { font-size: 1.6rem; }
+.w-pack-head .ar-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .7rem 0; }
+.w-intent { margin: .6rem 0 0; font-family: "Noto Sans KR", system-ui, sans-serif; font-size: .95rem; line-height: 1.7; color: #14285F; }
+.w-kicker { margin: 0 0 .4rem; }
+.w-counts { margin-bottom: 1rem; overflow: visible; }
+/* 인원 단추는 모두 같은 폭(가장 긴 '30명'에 맞춤) */
+.w-root .w-counts { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
+.w-root .w-counts > .ar-key { justify-content: center; }
+.w-root .w-stages .ar-row { grid-template-columns: 3.2em minmax(0, 1fr) 4.6em; width: 100%; text-align: left; cursor: pointer; font: inherit; min-height: 48px; }
+.w-stageno { text-align: center; }
+@media (max-width: 720px) {
+  .w-pack { grid-template-columns: minmax(0, 1fr); }
+  /* 인원 단추는 줄 폭을 같은 몫으로 나눠 오른쪽 끝이 스테이지 줄 끝과 맞게 */
+  .w-root .w-counts { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); width: 100%; }
+  .w-root .w-counts > .ar-key { min-width: 0; }
+}
+
+/* 게임 화면: 16:9 판을 화면에 맞게 키운다 */
+.w-play { display: grid; place-items: center; background: #14285F; padding: 0; }
+.w-stagebox { position: relative; width: min(100vw, calc(100dvh * 16 / 9)); aspect-ratio: 16 / 9; overflow: hidden; background: #EEF5FF; }
+.w-hudtitle { letter-spacing: .04em; }
+.w-hint { position: absolute; left: 12px; right: 12px; top: 78px; width: fit-content; max-width: 46em; margin: 0 auto; padding: .35rem .8rem; border-radius: 8px; background: #14285F; color: #F4F7FF; font-family: "Galmuri11", monospace; font-size: .95rem; text-align: center; }
+.w-hint:empty { display: none; }
+/* 끝 창은 판(16:9) 밖 화면 전체를 덮는다: 휴대폰 세로에서 판 높이(약 220px) 안에 갇혀 창이 잘리지 않게 */
+.w-end { position: fixed; inset: 0; z-index: 5; display: grid; place-items: center; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: rgba(20, 40, 95, .45); overflow: auto; }
+.w-end[hidden] { display: none; }
+.w-end .lab-modal { width: min(100%, 440px); }
+.w-time { font-size: 1.2em; }
+/* 낮은 화면(휴대폰 가로): 창을 넓혀 설명을 한 줄로, 단추 셋을 한 줄로 세워 창 전체가 화면 안에 들어오게 한다(글자 크기는 그대로) */
+@media (max-height: 520px) {
+  .w-end .lab-modal { width: min(100%, 640px); max-width: none; }
+  .w-end .ar-bezel { padding-bottom: .5rem; margin-bottom: .6rem; }
+  .w-end .ar-title { margin: 0 0 .3rem; }
+  .w-root .w-end .lab-actions { grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); grid-template-columns: none; padding-top: .8rem; }
+  .w-root .w-end .lab-actions > .ar-play { grid-column: auto; }
+}
+
+/* 화면 단추: 터치 기기에서만 */
+.w-pad { display: none; }
+@media (pointer: coarse) {
+  .w-pad { display: block; }
+  .w-pad .pad-l, .w-pad .pad-r { position: absolute; bottom: max(12px, env(safe-area-inset-bottom)); display: flex; gap: 10px; touch-action: none; }
+  .w-pad .pad-l { left: max(14px, env(safe-area-inset-left)); }
+  .w-pad .pad-r { right: max(14px, env(safe-area-inset-right)); }
+  .w-pad .ar-key { width: 60px; height: 60px; padding: 0; justify-content: center; gap: 0; opacity: .92; touch-action: none; -webkit-user-select: none; user-select: none; }
+  .w-pad .jump { width: 76px; height: 76px; }
+}
+@media (max-width: 560px) { .w-hide-s { display: none; } .w-root .lab-hud .ar-key { justify-content: center; gap: 0; min-width: 36px; } }
+
+/* 좁은 화면: 교과 단추 19개는 한 줄로 두고 옆으로 민다(오락실 원본 .ar-view-tabs 방식).
+   arcade.css(640 이하 `.ar-toolbar .ar-view-tabs { display: grid !important }`)와 world.css W8(줄바꿈)을 이겨야 해서 선택자를 한 단계 더 세게 쓴다. */
+@media (max-width: 720px) {
+  .w-root .ar-toolbar .w-families { display: flex !important; flex-wrap: nowrap; flex: 1 1 100%; width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; padding-bottom: .4rem; }
+  .w-root .ar-toolbar .w-families > .ar-key { flex: 0 0 auto; min-width: 0; min-height: 44px; white-space: nowrap; }
+}
+
+/* 휴대폰 세로: 16:9 판이 화면 가운데 낮게 서므로 화면 단추는 판 아래 빈 곳(화면 바닥)으로 내려 안내 줄 · 판과 겹치지 않게 한다 */
+@media (pointer: coarse) and (orientation: portrait) {
+  .w-pad .pad-l, .w-pad .pad-r { position: fixed; }
+}
+
+/* 조작 안내 한 줄 */
+.w-keys { margin: .9rem 0 0; font-family: "Noto Sans KR", system-ui, sans-serif; font-size: .88rem; line-height: 1.7; color: #14285F; }
+/* 확인 단추는 뛰기 단추 왼쪽에, 조금 작게 */
+@media (pointer: coarse) { .w-pad .pad-r { align-items: flex-end; } .w-pad .act { width: 60px; height: 60px; } }
+/* 조작 안내는 항목 단위로만 줄을 바꾼다(괄호 속 '들어가기'가 혼자 다음 줄로 가지 않게) */
+.w-keys > span { white-space: nowrap; }
+
+/* ---------- 교통정리 (2026-11-19) ----------
+   오락실 부품 모양은 그대로 두고 배치만 정리한다.
+   단추 약속: 화면마다 주 행동 하나만 노랑(.ar-key.mustard), 나머지는 테두리 단추(.ghost), 고르기는 .ghost + aria-pressed. */
+
+/* 단추 묶음을 한 번 더 감싸던 테두리 상자를 걷어낸다(단추마다 이미 제 테두리가 있다) */
+.w-root .ar-view-tabs { border: 0; border-radius: 0; background: none; padding: 0; gap: .45rem; }
+.w-root .ar-toolbar { margin-bottom: 1.1rem; }
+
+/* 상태 줄: 왼쪽에 뒤로 가기, 그 옆에 지금 화면에서 할 일 */
+.w-root .w-status { display: flex; align-items: center; gap: .75rem; }
+.w-root .w-status > span { min-width: 0; }
+.w-root .w-backbtn { flex: none; min-height: 40px; padding: .35rem .8rem; white-space: nowrap; }
+
+/* 카드: 제목이 한 줄이어도 빈 줄을 남기지 않고, 아래 정보 줄과 단추는 카드 바닥에 맞춘다 */
+.w-root.arcade-root .ar-card-title { min-height: 0; }
+.w-root .ar-card .lab-card-meta-row { margin-top: auto; }
+.w-root .ar-card .ar-card-meta { margin-top: 0; }
+
+/* 창의 단추 줄: 노랑 주 단추가 첫 줄 전체, 나머지는 둘째 줄에 같은 폭 */
+.w-root .lab-actions:has(> .mustard + * + *) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.w-root .lab-actions > .ar-key.mustard { grid-column: 1 / -1; font-size: 1.05rem; }
+@media (max-height: 520px) { .w-root .w-end .lab-actions > .ar-key.mustard { grid-column: auto; } }
+
+/* 게임 위쪽 줄: 띠를 걷어내고 정보(왼쪽)와 단추(오른쪽) 두 묶음만 띄운다 */
+.w-root .w-hud { left: 12px; right: 12px; top: 12px; padding: 0; background: none; border: 0; border-radius: 0; justify-content: space-between; gap: .75rem; }
+.w-root .w-hud > * { flex: none; }
+.w-root .w-hud-l, .w-root .w-hud-r { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.w-root .w-hud .w-hud-l { flex: 1 1 0; }
+.w-root .w-hud-l > .ar-count { flex: none; min-height: 28px; }
+.w-root .w-hud-l > .grow { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #14285F; }
+.w-root .w-hud .ar-key.ghost { background: #EEF5FF; min-height: 44px; white-space: nowrap; }   /* 하늘 그림 위에서도 단추가 제 면을 갖는다 */
+.w-root .w-hint { top: 68px; }
+/* 좁은 화면 · 휴대폰 가로: 위쪽 줄 단추는 그림만 남겨 44px 정사각형으로, 남는 폭은 스테이지 이름이 쓴다
+   (390 에서 '조작 익히기 02 저울 익히기' 가 "조…" 로, 가로 844 에서 "조작 익히기 02 저…" 로 잘리던 것). 좁은 세로 화면에서는 묶음 이름 · '연습' 표시도 숨긴다. */
+@media (max-width: 560px), (max-height: 520px) {
+  .w-root .w-hud-r .w-hide-s { display: none; }
+  .w-root .w-hud-r .ar-key { width: 44px; min-width: 44px; padding: 0; justify-content: center; gap: 0; }
+  .w-root .w-hud-r { gap: .4rem; }
+}
+@media (max-width: 560px) { .w-root .w-hud-l > .w-hide-s { display: none; } }
+/* 좁은 세로 화면: 스테이지 이름이 길면('02 덜고 나서 나누기' 126px, 칸 124px · 360 에서 94px) 말줄임 대신 두 줄까지 접는다. 위쪽 줄 높이 44px 안에 두 줄(16px × 2)이 들어간다. */
+@media (max-width: 560px) {
+  .w-root .w-hud-l > .w-hudtitle { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.25; word-break: keep-all; overflow-wrap: anywhere; letter-spacing: 0; }
+}
+/* 휴대폰 세로: 판 높이가 220px 남짓이라 판 위에 띄운 첫 안내가 저울 풀이 판을 6초 동안 통째로 가렸다. 판 바로 아래 빈 곳으로 내린다(판은 화면 세로 가운데, 높이 = 폭 × 9/16). */
+@media (max-width: 560px) and (orientation: portrait) {
+  .w-root .w-hint { position: fixed; top: calc(50dvh + 28.125vw + 12px); left: 12px; right: 12px; z-index: 2; }
+}
+/* 저울의 식과 지금 할 수 있는 일. 휴대폰 세로에서는 판이 0.3배로 줄어 캔버스 안 글자(4~6px)를 읽을 수 없어서 같은 글을 판 아래에 적는다. 넓은 화면에서는 캔버스 글로 충분해 숨긴다. */
+.w-root .w-math { display: none; }
+@media (max-width: 560px) and (orientation: portrait) {
+  .w-root .w-math:not([hidden]) { display: flex; flex-direction: column; justify-content: flex-end; position: fixed; top: calc(50dvh + 28.125vw + 12px); left: 12px; right: 12px; z-index: 2; margin: 0; padding: 0 12px; border-block: 6px solid #14285F; background: #14285F; color: #F4F7FF; font: 700 15px/21px Galmuri11, monospace; text-align: center; pointer-events: none; word-break: keep-all; overflow-wrap: anywhere;
+    /* 아래 터치 단추(뛰기 76px + 바닥 12px) 위 8px 까지만. 5줄(식 셋 + 두 줄 알림)이 들어가는 375×667 이 기준이고, 더 짧으면 오래된 식부터 위로 가려진다 */
+    max-height: calc(50dvh - 28.125vw - 108px); max-height: calc(round(down, 50dvh - 28.125vw - 120px, 21px) + 12px); overflow: hidden; }   /* 줄 높이 21px 단위로 내려 반쯤 잘린 줄이 남지 않게 */
+  .w-root .w-math > span { display: block; flex: none; }
+}
+
+/* 오락기 몸체 위쪽을 한 단 어둡게: 노랑 상표 글자(DoRms · 도름스 월드)가 밝은 파랑 위에서 3:1 에 못 미쳤다(2.6~2.9). 모양은 그대로, 색 값만. */
+.w-root { --ar-chassis-light: #2E50A0; --ar-chassis: #223F87; }
+
+/* 처음 화면: 교과 단추 줄 오른쪽에 '게임 만들기'. 좁으면 아랫줄로 내려간다 */
+.w-root .w-toolbar { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: .6rem; }
+.w-root .w-toolbar > .w-families { flex: 1 1 auto; min-width: 0; }
+.w-root .w-makebtn { flex: none; min-height: 40px; white-space: nowrap; }
+
+/* 게임 만들기 화면 */
+.w-root .w-steps { list-style: none; margin: 1rem 0 0; padding: 0; display: grid; gap: .5rem; }
+.w-root .w-step { grid-template-columns: 3.2em minmax(0, 1fr); align-items: start; min-height: 48px; }
+.w-step-text { display: grid; gap: .2rem; min-width: 0; }
+.w-step-body { font-family: "Noto Sans KR", system-ui, sans-serif; font-size: .9rem; line-height: 1.6; color: #14285F; }
+.w-prompt { margin: 0 0 .7rem; padding: .9rem 1rem; border: 2px solid #14285F; border-radius: 8px; background: #F4F7FF; color: #14285F; font: 14px/1.7 "Noto Sans KR", system-ui, sans-serif; white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; user-select: text; }
+.w-make-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.1rem; }
+.w-root .w-make-actions > .ar-key { min-height: 44px; }
+.w-notes { margin: 0 0 1rem; padding-left: 1.2rem; font-family: "Noto Sans KR", system-ui, sans-serif; font-size: .9rem; line-height: 1.7; color: #14285F; }
+
+/* 요청 검토 알림 줄 */
+.w-review { margin: .2rem 0 1rem; padding: .8rem 1rem; border: 2px solid #14285F; border-radius: 8px; background: #F4F7FF; color: #14285F; font-family: "Noto Sans KR", system-ui, sans-serif; font-size: .92rem; line-height: 1.6; }
+.w-review-line { margin: 0 0 .3rem; }
+.w-review-files { margin: 0 0 .4rem; font-size: .82rem; overflow-wrap: anywhere; }
+.w-review-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .6rem; }
+.w-root .w-review-actions > .ar-key { min-height: 44px; text-decoration: none; }
+.w-design { margin: .8rem 0 0; padding: .8rem; max-height: 50vh; overflow: auto; background: #EEF5FF; color: #14285F; border-radius: 6px; font: 13px/1.7 "Noto Sans KR", system-ui, sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; }
+.w-design[hidden] { display: none; }

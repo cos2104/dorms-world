@@ -1,0 +1,13 @@
+{
+  "id": "etc/tutorial",
+  "name": "조작 익히기",
+  "tagline": "걷고 뛰고 함께 미는 법",
+  "family": "기타",
+  "schoolLevels": ["초등학교", "중학교", "고등학교"],
+  "units": [],
+  "educationalIntent": "교과 내용이 없는 연습 스테이지입니다. 단추, 다리, 상자, 저울, 열쇠와 문을 한 번씩 써 보며 조작을 익힙니다.",
+  "description": "한 명이 단추를 밟아 다리를 놓고, 여럿이 상자를 밀어 계단을 만들고, 열쇠를 찾아 모두 문으로 들어갑니다. 둘째 스테이지에서는 저울의 양쪽 접시에서 똑같이 덜어 내 봅니다.",
+  "creator": { "nickname": "도름스", "avatar": null },
+  "players": { "min": 2, "max": 30 },
+  "stages": [{ "file": "01", "name": "처음 만난 장치들", "difficulty": 1 }, { "file": "02", "name": "저울 익히기", "difficulty": 2 }, { "file": "03", "name": "그림을 넣은 저울", "difficulty": 2 }]
+}

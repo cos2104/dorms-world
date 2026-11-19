@@ -1,0 +1,53 @@
+{
+  "id": "math/scale-equation",
+  "name": "저울로 푸는 일차방정식",
+  "tagline": "양쪽에서 똑같이, x만 남을 때까지",
+  "family": "수학",
+  "schoolLevels": [
+    "중학교"
+  ],
+  "units": [
+    {
+      "band": "ms1",
+      "subject": "수학",
+      "unit": "문자와 식"
+    }
+  ],
+  "educationalIntent": "등식의 양변에 같은 일을 하면 등식이 그대로라는 것, 그리고 x만 남기려고 양변에 같은 일을 차례로 한다는 것을 저울을 함께 다루며 겪게 합니다.",
+  "description": "상자 하나가 x, 구슬 하나가 1입니다. 좌변 쪽과 우변 쪽으로 나뉘어 구슬을 같이 덜고, 같이 올리고, 레버로 똑같이 나눕니다. 한쪽만 손대면 저울이 기울다가 쏟아집니다. 저울이 수평으로 돌아올 때마다 풀이가 한 줄씩 적힙니다. 식의 수는 할 때마다 바뀝니다.",
+  "creator": {
+    "nickname": "홍창욱",
+    "avatar": null
+  },
+  "players": {
+    "min": 2,
+    "max": 30
+  },
+  "stages": [
+    {
+      "file": "01",
+      "name": "같이 덜어 내기",
+      "difficulty": 1
+    },
+    {
+      "file": "02",
+      "name": "덜고 나서 나누기",
+      "difficulty": 2
+    },
+    {
+      "file": "03",
+      "name": "양쪽에 상자",
+      "difficulty": 3
+    },
+    {
+      "file": "04",
+      "name": "풍선 터뜨리기",
+      "difficulty": 3
+    },
+    {
+      "file": "05",
+      "name": "저울 둘",
+      "difficulty": 5
+    }
+  ]
+}

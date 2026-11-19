@@ -1,0 +1,44 @@
+{
+  "legend": {
+    "l": {
+      "type": "pan",
+      "scale": "s",
+      "side": "left"
+    },
+    "r": {
+      "type": "pan",
+      "scale": "s",
+      "side": "right"
+    },
+    "u": {
+      "type": "bin",
+      "scale": "s"
+    },
+    "x": {
+      "type": "bridge"
+    }
+  },
+  "scales": {
+    "s": {
+      "x": [
+        2,
+        6
+      ],
+      "left": {
+        "boxes": 1,
+        "marbles": [
+          2,
+          4
+        ]
+      },
+      "right": {
+        "boxes": 0
+      },
+      "opens": [
+        "x"
+      ],
+      "spill": 3
+    }
+  },
+  "hint": "한쪽만 덜면 저울이 쏟아져요. 양쪽에서 같이 덜어 상자만 남겨요."
+}

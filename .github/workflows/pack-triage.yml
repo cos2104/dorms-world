@@ -1,0 +1,26 @@
+# 요청(PR)이 열리면 무엇이 바뀌었는지 보고 꼬리표를 붙인다. 요청의 코드를 내려받거나 돌리지 않는다(파일 이름만 읽는다).
+name: 요청 가르기
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+permissions:
+  pull-requests: write
+  contents: read
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: 바뀐 파일로 꼬리표 정하기
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          files=$(gh api "repos/$REPO/pulls/$PR/files?per_page=100" --jq '.[].filename')
+          label="팩만"
+          if echo "$files" | grep -qvE '^packs/[a-z0-9-]+/[a-z0-9-]+/'; then label="판 변경 포함"; fi
+          if echo "$files" | grep -qE '^(\.github/|scripts/|package(-lock)?\.json$|vercel\.json$|vite\.config\.ts$|index\.html$|public/)'; then label="실을 수 없는 파일"; fi
+          for l in "팩만" "판 변경 포함" "실을 수 없는 파일"; do
+            if [ "$l" = "$label" ]; then gh pr edit "$PR" --repo "$REPO" --add-label "$l"; else gh pr edit "$PR" --repo "$REPO" --remove-label "$l" 2>/dev/null || true; fi
+          done

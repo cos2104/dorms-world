@@ -1,0 +1,60 @@
+{
+  "legend": {
+    "l": {
+      "type": "pan",
+      "scale": "s",
+      "side": "left"
+    },
+    "r": {
+      "type": "pan",
+      "scale": "s",
+      "side": "right"
+    },
+    "u": {
+      "type": "bin",
+      "scale": "s"
+    },
+    "v": {
+      "type": "lever",
+      "scale": "s",
+      "does": "addsub"
+    },
+    "w": {
+      "type": "lever",
+      "scale": "s",
+      "does": "divide"
+    },
+    "x": {
+      "type": "bridge"
+    }
+  },
+  "scales": {
+    "s": {
+      "x": [
+        2,
+        4
+      ],
+      "left": {
+        "boxes": [
+          3,
+          4
+        ],
+        "marbles": [
+          1,
+          3
+        ]
+      },
+      "right": {
+        "boxes": [
+          1,
+          2
+        ]
+      },
+      "opens": [
+        "x"
+      ],
+      "spill": 3
+    }
+  },
+  "hint": "양쪽에 상자가 있어요. 상자도 양쪽에서 같이 덜어 내요."
+}

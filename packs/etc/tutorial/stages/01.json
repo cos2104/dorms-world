@@ -1,0 +1,9 @@
+{
+  "legend": {
+    "a": { "type": "button", "need": 1, "opens": ["x"] },
+    "b": { "type": "button", "need": 1, "opens": ["x"] },
+    "x": { "type": "bridge" },
+    "c": { "type": "crate", "need": "half" }
+  },
+  "hint": "단추를 밟는 동안 다리가 놓여요. 상자는 함께 밀어 계단으로 써요."
+}

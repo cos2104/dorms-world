@@ -1,0 +1,57 @@
+{
+  "legend": {
+    "l": {
+      "type": "pan",
+      "scale": "s",
+      "side": "left"
+    },
+    "r": {
+      "type": "pan",
+      "scale": "s",
+      "side": "right"
+    },
+    "u": {
+      "type": "bin",
+      "scale": "s"
+    },
+    "v": {
+      "type": "lever",
+      "scale": "s",
+      "does": "addsub"
+    },
+    "w": {
+      "type": "lever",
+      "scale": "s",
+      "does": "divide"
+    },
+    "x": {
+      "type": "bridge"
+    }
+  },
+  "scales": {
+    "s": {
+      "x": [
+        2,
+        5
+      ],
+      "left": {
+        "boxes": [
+          2,
+          3
+        ],
+        "marbles": [
+          1,
+          4
+        ]
+      },
+      "right": {
+        "boxes": 0
+      },
+      "opens": [
+        "x"
+      ],
+      "spill": 3
+    }
+  },
+  "hint": "레버를 빼기로 바꿔 구슬을 덜고, 상자가 여럿이면 똑같이 나눠요."
+}

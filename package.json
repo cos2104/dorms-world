@@ -1,0 +1,21 @@
+{
+  "name": "dorms-world",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "vite",
+    "build": "node scripts/check-pack-files.mjs && vitest run tests/packs.test.ts && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "node scripts/check-pack-files.mjs && vitest run",
+    "check:packs": "node scripts/check-pack-files.mjs && vitest run tests/packs.test.ts",
+    "submit": "node scripts/submit-pack.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.58.2",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.2",
+    "vitest": "^3.2.4"
+  }
+}
