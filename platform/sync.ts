@@ -7,13 +7,20 @@
 import { MAX_BOXES, MAX_MARBLES, type Line } from './equation';
 import { colorFor } from './identity';
 import { MAX_SEATS } from './room-rules';
-import { setPlayerCount, type Carry, type World } from './sim';
+import { NOTE_LIST, dividedNote, setPlayerCount, type Carry, type World } from './sim';
 import { T } from './stage';
 
 /** 방장이 요약을 보내는 간격(물리 걸음 수). 60 / 3 = 초당 20번. */
 export const SNAP_EVERY = 3;
 const P = 8, C = 4, S_HEAD = 8;   // 도름이·상자 하나가 차지하는 칸 수, 저울 머리 칸 수
-const NOTE_MAX = 60, LINES_MAX = 8;
+const LINES_MAX = 8;
+/**
+ * 저울 알림은 글이 아니라 번호로 싣는다: 0 없음, 1부터 sim.ts NOTE_LIST 의 차례, 100 + g 는 'g묶음으로 나눠…'.
+ * 다른 기기가 보낸 글자를 화면에 그대로 그리는 칸은 요약에 하나도 없다(다리 글자 a 는 조회에만 쓴다).
+ */
+const DIVIDED = 100;
+const noteCode = (text: string) => { const i = NOTE_LIST.indexOf(text); if (i >= 0) return i + 1; const m = /^(\d{1,2})묶음으로/.exec(text); return m && dividedNote(+m[1]) === text ? DIVIDED + +m[1] : 0; };
+const noteText = (code: number) => (code >= DIVIDED ? (code - DIVIDED >= 2 && code - DIVIDED <= MAX_MARBLES ? dividedNote(code - DIVIDED) : '') : NOTE_LIST[code - 1] ?? '');
 
 export type Wire = {
   r: number;                              // 판 번호(방 정보의 run). 지난 판의 요약은 버린다
@@ -25,7 +32,7 @@ export type Wire = {
   b: number[];                            // 단추마다 밟은 사람 수
   c: number[];                            // 상자마다 4칸: x, y, 떨어지는 속도, 미는 사람 수
   p: number[];                            // 도름이마다 8칸: 자리 번호, x, y, vx, vy, 상태, 걷기, 든 것
-  s: (number | string)[][];               // 저울마다: 통(0 더하기 1 빼기), 풀림, 기울기, 기운 시간, 수평 시간, 덜컹, 알림 시간, 알림, 그리고 지금 식 4칸 + 풀이 판 줄마다 4칸
+  s: number[][];                          // 저울마다: 통(0 더하기 1 빼기), 풀림, 기울기, 기운 시간, 수평 시간, 덜컹, 알림 시간, 알림 번호, 그리고 지금 식 4칸 + 풀이 판 줄마다 4칸
 };
 
 const r1 = (v: number) => Math.round(v * 10) / 10, r2 = (v: number) => Math.round(v * 100) / 100;
@@ -53,7 +60,7 @@ export function toWire(w: World, seats: readonly number[], run: number, n: numbe
     b: w.pressed.slice(),
     c: w.crates.flatMap(c => [r1(c.x), r1(c.y), Math.round(c.vy), c.pushers]),
     p,
-    s: w.scales.map(sc => [sc.mode === 'sub' ? 1 : 0, sc.solved ? 1 : 0, sc.tilt, r2(sc.tiltT), r2(sc.calm), r2(Math.max(0, sc.shake)), r2(Math.max(0, sc.noteT)), sc.noteT > 0 ? sc.note : '', ...sc.line, ...sc.lines.flat()]),
+    s: w.scales.map(sc => [sc.mode === 'sub' ? 1 : 0, sc.solved ? 1 : 0, sc.tilt, r2(sc.tiltT), r2(sc.calm), r2(Math.max(0, sc.shake)), r2(Math.max(0, sc.noteT)), sc.noteT > 0 ? noteCode(sc.note) : 0, ...sc.line, ...sc.lines.flat()]),
   };
 }
 
@@ -72,8 +79,7 @@ export function readWire(x: unknown): Wire | null {
   if (!Array.isArray(o.s) || o.s.length > 16) return null;
   for (const s of o.s) {
     if (!Array.isArray(s) || s.length < S_HEAD + 8 || s.length > S_HEAD + 4 + LINES_MAX * 4 || (s.length - S_HEAD) % 4) return null;
-    if (typeof s[7] !== 'string' || s[7].length > NOTE_MAX) return null;
-    for (let i = 0; i < s.length; i++) if (i !== 7 && !num(s[i])) return null;
+    if (!s.every(num) || !whole(s[7], 0, DIVIDED + MAX_MARBLES)) return null;
     for (let i = S_HEAD; i < s.length; i++) if (!whole(s[i], -MAX_MARBLES, MAX_MARBLES)) return null;
   }
   return o as unknown as Wire;
@@ -93,35 +99,37 @@ export function applyWire(w: World, wire: Wire): boolean {
   if (w.players.length !== seats.length || w.players.some((q, i) => q.color !== colorFor(seats[i]))) setPlayerCount(w, seats.map(colorFor));
   const sw = st.cols * T, sh = st.rows * T, inX = (v: number) => Math.max(-T, Math.min(sw + T, v)), inY = (v: number) => Math.max(-4 * T, Math.min(sh + 4 * T, v));
 
-  w.t = wire.t; w.doorOpen = !!(wire.f & 1); w.won = !!(wire.f & 2);
+  w.t = Math.min(wire.t, 86_400); w.doorOpen = !!(wire.f & 1); w.won = !!(wire.f & 2);
   const holder = wire.k[2];
   w.key = { x: inX(wire.k[0]), y: inY(wire.k[1]), holder: Number.isInteger(holder) && holder >= 0 && holder < seats.length ? holder : null, used: !!wire.k[3] };
   w.active = new Set(wire.a);
   w.pressed = wire.b.map(v => Math.max(0, Math.min(MAX_SEATS, v | 0)));
-  w.crates.forEach((c, i) => { c.x = inX(wire.c[i * C]); c.y = inY(wire.c[i * C + 1]); c.vy = wire.c[i * C + 2]; c.pushers = Math.max(0, Math.min(MAX_SEATS, wire.c[i * C + 3] | 0)); });
+  w.crates.forEach((c, i) => { c.x = inX(wire.c[i * C]); c.y = inY(wire.c[i * C + 1]); c.vy = fast(wire.c[i * C + 2]); c.pushers = Math.max(0, Math.min(MAX_SEATS, wire.c[i * C + 3] | 0)); });
   w.players.forEach((q, i) => {
     const o = i * P, bits = wire.p[o + 5];
-    q.x = inX(wire.p[o + 1]); q.y = inY(wire.p[o + 2]); q.vx = wire.p[o + 3]; q.vy = wire.p[o + 4];
+    q.x = inX(wire.p[o + 1]); q.y = inY(wire.p[o + 2]); q.vx = fast(wire.p[o + 3]); q.vy = fast(wire.p[o + 4]);
     q.on = !!(bits & ON); q.inDoor = !!(bits & IN_DOOR);
     q.side = bits & LEFT ? 'left' : bits & RIGHT ? 'right' : null;
     q.turnT = bits & TURN ? 0.1 : 0; q.doorLock = !!(bits & LOCK);
     q.aHeld = !!(bits & A_HELD); q.aNew = false; q.jumpHeld = !!(bits & J_HELD); q.jn = null; q.jumpBuf = 0;
-    q.walk = wire.p[o + 6];
+    q.walk = ((wire.p[o + 6] % 4) + 4) % 4;              // 걷는 그림 번호가 음수가 되지 않게
     q.carry = unpackCarry(wire.p[o + 7], w.scales.length);
   });
   w.scales.forEach((sc, i) => {
-    const s = wire.s[i] as number[];
+    const s = wire.s[i];
     const line = (at: number): Line => [box(s[at]), s[at + 1], box(s[at + 2]), s[at + 3]];
     sc.mode = s[0] ? 'sub' : 'add'; sc.solved = !!s[1];
     sc.tilt = s[2] < 0 ? -1 : s[2] > 0 ? 1 : 0;
     sc.tiltT = Math.max(0, s[3]); sc.calm = Math.max(0, s[4]); sc.shake = Math.max(0, Math.min(1, s[5])); sc.noteT = Math.max(0, Math.min(5, s[6]));
-    sc.note = String(wire.s[i][7]);
+    sc.note = sc.noteT > 0 ? noteText(s[7]) : '';
     sc.line = line(S_HEAD);
     sc.lines = []; for (let at = S_HEAD + 4; at < s.length; at += 4) sc.lines.push(line(at));
   });
   return true;
 }
 const box = (v: number) => Math.max(0, Math.min(MAX_BOXES, v));
+/** 속도는 물리가 내는 범위 안으로 자른다(방장이 바뀌어 이 세계를 이어 굴릴 때 터무니없는 속도가 남지 않게). */
+const fast = (v: number) => Math.max(-1000, Math.min(1000, v));
 
 // ---------- 요약 사이를 부드럽게 잇기 ----------
 

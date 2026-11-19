@@ -546,7 +546,7 @@ function openGame(p: Pack, si: number) {
       // 방장이 됐다: 마지막 요약에서 이어서 굴린다. 그 요약에 남아 있는 나간 사람의 도름이는 지금 차례에 맞춰 뺀다
       if (k.isHost) {
         if (track.b && applyWire(world, track.b)) mine.reorder(wireSeats(track.b), k.room.order);
-        sent = Math.max(sent, track.b?.n ?? 0);          // 요약의 차례 번호는 앞 방장의 것에 이어서 센다(손님이 '지난 요약'으로 버리지 않게)
+        sent = Math.min(Math.max(sent, track.b?.n ?? 0), 1e9);   // 요약의 차례 번호는 앞 방장의 것에 이어서 센다(터무니없이 큰 번호는 잇지 않는다)
         reconcile(); acc = 0;
       }
       track = newTrack(); pads.clear();

@@ -449,9 +449,9 @@ export function actionAt(w: World, p: Player): Action | null {
   for (const b of s.bins) {
     const sc = w.scales[b.scale], free = !s.scales[b.scale].hasAddSub;
     if (sc.solved || !beside(p, b)) continue;
-    if (p.carry && p.carry.scale !== b.scale) return { do: 'no', scale: b.scale, why: '다른 저울의 통이에요' };   // 남의 통에 버려 레버를 건너뛰지 못하게
-    if (p.carry) return free || sc.mode === 'sub' ? { do: 'discard', scale: b.scale } : { do: 'no', scale: b.scale, why: '지금은 더하기라 버릴 수 없어요' };
-    return free || sc.mode === 'add' ? { do: 'draw', scale: b.scale } : { do: 'no', scale: b.scale, why: '지금은 빼기라 꺼낼 수 없어요' };
+    if (p.carry && p.carry.scale !== b.scale) return { do: 'no', scale: b.scale, why: NOTE.otherBin };   // 남의 통에 버려 레버를 건너뛰지 못하게
+    if (p.carry) return free || sc.mode === 'sub' ? { do: 'discard', scale: b.scale } : { do: 'no', scale: b.scale, why: NOTE.addOnly };
+    return free || sc.mode === 'add' ? { do: 'draw', scale: b.scale } : { do: 'no', scale: b.scale, why: NOTE.subOnly };
   }
   for (let si = 0; si < s.scales.length; si++) {
     const sc = w.scales[si], def = s.scales[si];
@@ -460,18 +460,32 @@ export function actionAt(w: World, p: Player): Action | null {
       if (!overlap(p, panZone(def, side))) continue;
       const boxes = sc.line[side * 2], marbles = sc.line[side * 2 + 1];
       if (p.carry) {
-        if (p.carry.scale !== si) return { do: 'no', scale: si, why: '다른 저울에서 가져온 것이에요' };
-        if (p.carry.kind === 'box' ? boxes >= MAX_BOXES : marbles >= MAX_MARBLES) return { do: 'no', scale: si, why: '접시가 가득 찼어요' };
+        if (p.carry.scale !== si) return { do: 'no', scale: si, why: NOTE.otherScale };
+        if (p.carry.kind === 'box' ? boxes >= MAX_BOXES : marbles >= MAX_MARBLES) return { do: 'no', scale: si, why: NOTE.full };
         return { do: 'place', scale: si, side, kind: p.carry.kind };
       }
       const atBoxes = p.x + p.w / 2 < def.pans[side].x + def.pans[side].w * BOX_PART;
-      if (!atBoxes && marbles < 0) return { do: 'no', scale: si, why: '풍선은 뗄 수 없어요. 구슬을 올리면 하나씩 터져요' };
+      if (!atBoxes && marbles < 0) return { do: 'no', scale: si, why: NOTE.balloon };
       const kind: Item | null = atBoxes ? (boxes ? 'box' : marbles > 0 ? 'marble' : null) : (marbles > 0 ? 'marble' : boxes ? 'box' : null);
       return kind ? { do: 'take', scale: si, side, kind } : null;
     }
   }
   return null;
 }
+
+/**
+ * 저울 알림 글은 모두 여기에 있다. 손님에게는 글이 아니라 이 목록의 번호가 간다(platform/sync.ts):
+ * 방장 기기가 다른 사람 화면에 아무 글이나 띄우지 못하게, 화면에 뜨는 글은 그 기기의 코드가 만든 것뿐이다.
+ * 알림 글을 새로 지을 때는 반드시 여기에 더한다.
+ */
+export const NOTE = {
+  otherBin: '다른 저울의 통이에요', addOnly: '지금은 더하기라 버릴 수 없어요', subOnly: '지금은 빼기라 꺼낼 수 없어요',
+  otherScale: '다른 저울에서 가져온 것이에요', full: '접시가 가득 찼어요', balloon: '풍선은 뗄 수 없어요. 구슬을 올리면 하나씩 터져요',
+  sameBoxes: '양쪽 상자 수가 같으면 x 를 알 수 없어요', tilted: '저울이 기울어 있으면 나눌 수 없어요', uneven: '똑같이 나눌 수 없어요',
+  spilled: '저울이 쏟아져서 처음 식으로 돌아갔어요',
+} as const;
+export const NOTE_LIST: readonly string[] = Object.values(NOTE);
+export const dividedNote = (g: number) => `${g}묶음으로 나눠 한 묶음만 남겼어요`;
 
 const say = (sc: ScaleState, text: string) => { sc.note = text; sc.noteT = 2.2; };
 
@@ -495,7 +509,7 @@ function revert(w: World, si: number, why: string, toStart = false) {
 function record(w: World, si: number): boolean {
   const sc = w.scales[si], n = sc.lines.length, last = sc.lines[n - 1], cur = sc.line;
   if (sameLine(cur, last)) return true;
-  if (cur[0] === cur[2]) { revert(w, si, '양쪽 상자 수가 같으면 x 를 알 수 없어요'); return false; }
+  if (cur[0] === cur[2]) { revert(w, si, NOTE.sameBoxes); return false; }
   const before = sc.lines[n - 2];
   const family = (k: string) => (k === 'sub' || k === 'add' ? 'm' : k === 'subx' || k === 'addx' ? 'x' : '');
   if (before && sameLine(cur, before)) sc.lines.pop();
@@ -517,9 +531,9 @@ function scaleTick(w: World, dt: number) {
       if (lever.does === 'addsub') { sc.mode = sc.mode === 'add' ? 'sub' : 'add'; continue; }
       // 나누기: 수평일 때, 접시 위 모든 묶음이 똑같이 나뉠 때만 된다
       const g = commonDivisor(sc.line);
-      if (sc.tilt !== 0) { sc.shake = 0.5; say(sc, '저울이 기울어 있으면 나눌 수 없어요'); }
-      else if (g <= 1) { sc.shake = 0.5; say(sc, '똑같이 나눌 수 없어요'); }
-      else if (record(w, lever.scale)) { sc.line = sc.line.map(v => v / g) as Line; sc.calm = 0; say(sc, `${g}묶음으로 나눠 한 묶음만 남겼어요`); }   // 방금 수평이 된 식을 먼저 적고 나눈다(빼기 줄이 빠지지 않게)
+      if (sc.tilt !== 0) { sc.shake = 0.5; say(sc, NOTE.tilted); }
+      else if (g <= 1) { sc.shake = 0.5; say(sc, NOTE.uneven); }
+      else if (record(w, lever.scale)) { sc.line = sc.line.map(v => v / g) as Line; sc.calm = 0; say(sc, dividedNote(g)); }   // 방금 수평이 된 식을 먼저 적고 나눈다(빼기 줄이 빠지지 않게)
       continue;
     }
     const sc = w.scales[act.scale];
@@ -539,7 +553,7 @@ function scaleTick(w: World, dt: number) {
     if (sc.solved) return;
     if (sc.tilt) {
       sc.calm = 0; sc.tiltT += dt;
-      if (def.spill > 0 && sc.tiltT >= def.spill) revert(w, si, '저울이 쏟아져서 처음 식으로 돌아갔어요', true);
+      if (def.spill > 0 && sc.tiltT >= def.spill) revert(w, si, NOTE.spilled, true);
       return;
     }
     sc.tiltT = 0; sc.calm += dt;

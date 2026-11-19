@@ -12,6 +12,10 @@ export const LIMITS = { guest: 256, snap: 32 * 1024, host: 2048, perSec: 40, bur
 /** 연결을 끊을 때의 까닭 번호(브라우저가 읽을 수 있는 4000번대). */
 export const CLOSE = { bad: 4000, full: 4003, none: 4004, tooBig: 4007, tooFast: 4008, taken: 4009, replaced: 4010 } as const;
 export const PUBLIC_TTL = 30_000;
+/** 공개 방 목록에는 방 하나가 1초에 한 번까지만 알린다. 달라진 것이 없으면 10초에 한 번(목록이 30초 뒤 지우므로). */
+export const REPORT_GAP = 1000, REPORT_KEEP = 10_000;
+/** 이만큼 아무 소식(글도, 연결 두드리기도)이 없는 연결은 죽은 것으로 보고 자리를 비운다. 화면은 10초마다 두드린다. */
+export const IDLE_MS = 60_000;
 
 export const ORIGINS = ['https://dorms-world.vercel.app', 'https://dorms.school'];
 const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d{1,5})?$/;
@@ -66,7 +70,7 @@ export function readJoinQuery(q: { get(name: string): string | null }): JoinQuer
 /** 연결 하나에 붙여 두는 값. 방이 잠들었다 깨어도 이 값으로 다시 세운다(방장의 것에만 방 정보가 함께 있다). */
 export type Saved = { code: string; seat: number; key: number; rank: number; view: View; id: string; host: boolean; info?: RoomInfo };
 
-type Conn<S> = { sock: S; seat: number; key: number; rank: number; view: View; id: string; host: boolean; tokens: number; at: number };
+type Conn<S> = { sock: S; seat: number; key: number; rank: number; view: View; id: string; host: boolean; tokens: number; at: number; seen: number; viewAt: number };
 
 export type Out<S> = {
   send(sock: S, text: string): void;
@@ -75,6 +79,8 @@ export type Out<S> = {
   save?(sock: S, saved: Saved): void;
   /** 공개 방 목록에 올리거나(값), 내린다(null). */
   lobby?(code: string, room: PublicRoom | null): void;
+  /** 연결 두드리기('ping')에 마지막으로 답한 때(밀리초). 모르면 0. 방을 깨우지 않고 오가는 것이라 방은 이 값으로만 안다. */
+  pinged?(sock: S): number;
 };
 
 const bytes = (s: string) => (s.length * 3 < 256 ? s.length : new TextEncoder().encode(s).length);
@@ -89,6 +95,9 @@ export class RoomCore<S> {
   private conns = new Map<number, Conn<S>>();
   private nextKey = 1;
   private nextRank = 1;
+  private told = '';          // 공개 방 목록에 마지막으로 알린 값
+  private toldAt = 0;
+  private clock = 0;          // 마지막으로 본 때(밀리초)
 
   constructor(private out: Out<S>) {}
 
@@ -100,7 +109,8 @@ export class RoomCore<S> {
   restore(sock: S, s: Saved) {
     if (!validRoomCode(s.code) || !int(s.seat, 0, MAX_SEATS - 1) || this.conns.has(s.seat)) return;
     this.code = s.code;
-    this.conns.set(s.seat, { sock, seat: s.seat, key: s.key, rank: s.rank, view: s.view, id: s.id, host: s.host, tokens: LIMITS.burst, at: 0 });
+    if (!int(s.key, 1, Number.MAX_SAFE_INTEGER) || !int(s.rank, 1, Number.MAX_SAFE_INTEGER) || (s.view !== 'play' && s.view !== 'pad')) return;
+    this.conns.set(s.seat, { sock, seat: s.seat, key: s.key, rank: s.rank, view: s.view, id: typeof s.id === 'string' && TAB_ID.test(s.id) ? s.id : '', host: s.host === true, tokens: LIMITS.burst, at: 0, seen: 0, viewAt: 0 });
     this.nextKey = Math.max(this.nextKey, s.key + 1); this.nextRank = Math.max(this.nextRank, s.rank + 1);
     if (s.host && s.info) this.info = cleanRoomInfo(s.info) ?? this.info;
   }
@@ -110,9 +120,26 @@ export class RoomCore<S> {
   }
   private toAll(text: string, but?: Conn<S>) { for (const c of this.conns.values()) if (c !== but) this.out.send(c.sock, text); }
   private who() { this.toAll(JSON.stringify({ t: 'who', host: this.hostSeat, seats: this.seats() })); }
+  /**
+   * 공개 방 목록에 알린다. 비공개 방은 공개였다가 바뀐 그 한 번만(내리기), 공개 방은 달라졌을 때와 10초마다.
+   * 한 방이 목록을 두드리는 횟수는 1초에 한 번을 넘지 않는다(밀린 것은 방장의 다음 살아 있음 알림 때 간다).
+   */
   private report() {
     if (!this.out.lobby || !this.code) return;
-    this.out.lobby(this.code, this.info.pub && this.conns.size > 0 ? { code: this.code, pack: this.info.pack, stage: this.info.stage, count: this.conns.size } : null);
+    const room = this.info.pub && this.conns.size > 0 ? { code: this.code, pack: this.info.pack, stage: this.info.stage, count: this.conns.size } : null;
+    const now = JSON.stringify(room);
+    if (!room) { if (this.told && this.told !== 'null') { this.told = 'null'; this.out.lobby(this.code, null); } else this.told = 'null'; return; }
+    const since = this.clock - this.toldAt;
+    if (this.told === now ? since < REPORT_KEEP : this.told !== '' && this.told !== 'null' && since < REPORT_GAP) return;
+    this.told = now; this.toldAt = this.clock;
+    this.out.lobby(this.code, room);
+  }
+  /** 한참 소식이 없는 연결을 끊어 자리를 비운다(죽은 연결이 자리와 도름이를 붙잡고 있지 않게). */
+  private sweep() {
+    for (const c of [...this.conns.values()]) {
+      const last = Math.max(c.seen, this.out.pinged?.(c.sock) ?? 0);
+      if (last > 0 && this.clock - last > IDLE_MS) this.kick(c, CLOSE.bad, 'idle');
+    }
   }
   /** 방장이 없으면 새로 뽑는다. 뽑았으면 true. */
   private elect(skip?: Conn<S>): boolean {
@@ -132,26 +159,36 @@ export class RoomCore<S> {
     return null;
   }
 
-  /** 새 연결. 들어오지 못하면 까닭을 알리고 끊은 뒤 null 을 돌려준다. */
-  join(sock: S, code: string, q: JoinQuery): Saved | null {
-    if (!validRoomCode(code)) return this.refuse(sock, CLOSE.bad, 'code');
+  /** 들어올 수 있는지만 본다. 못 들어오면 [까닭 번호, 까닭]. now 는 밀리초. */
+  check(code: string, q: JoinQuery, now = Date.now()): [number, string] | null {
+    if (!validRoomCode(code)) return [CLOSE.bad, 'code'];
+    this.clock = Math.max(this.clock, now);
+    this.sweep();
     const same = q.id ? [...this.conns.values()].find(c => c.id === q.id) : undefined;
-    if (q.mode === 'create' && this.conns.size > 0 && !same) return this.refuse(sock, CLOSE.taken, 'taken');
-    if (q.mode === 'join' && this.conns.size === 0) return this.refuse(sock, CLOSE.none, 'none');
-    if (!same && this.conns.size >= MAX_SEATS) return this.refuse(sock, CLOSE.full, 'full');
-    if (this.conns.size === 0) { this.code = code; this.info = emptyRoom(q.pub, q.big); }
+    if (q.mode === 'create' && this.conns.size > 0 && !same) return [CLOSE.taken, 'taken'];
+    if (q.mode === 'join' && this.conns.size === 0) return [CLOSE.none, 'none'];
+    if (!same && this.conns.size >= MAX_SEATS) return [CLOSE.full, 'full'];
+    return null;
+  }
+
+  /** 새 연결. 들어오지 못하면 까닭을 알리고 끊은 뒤 null 을 돌려준다. */
+  join(sock: S, code: string, q: JoinQuery, now = Date.now()): Saved | null {
+    const no = this.check(code, q, now);
+    if (no) return this.refuse(sock, no[0], no[1]);
+    const same = q.id ? [...this.conns.values()].find(c => c.id === q.id) : undefined;
+    if (this.conns.size === 0) { this.code = code; this.info = emptyRoom(q.pub, q.big); this.told = ''; }
 
     let conn: Conn<S>;
     if (same) {
       // 같은 창이 다시 붙었다(와이파이가 잠깐 끊긴 경우). 앉아 있던 자리를 그대로 잇고 옛 연결은 끊는다.
       this.out.close(same.sock, CLOSE.replaced, 'replaced');
-      conn = { ...same, sock, key: this.nextKey++, tokens: LIMITS.burst, at: 0 };
+      conn = { ...same, sock, key: this.nextKey++, tokens: LIMITS.burst, at: 0, seen: now };
       if (!conn.host && q.view !== 'auto') conn.view = q.view;
     } else {
       let seat = 0; while (this.conns.has(seat)) seat++;
       const host = this.hostSeat < 0;
       const view: View = host ? 'play' : q.view === 'auto' ? (this.info.big ? 'pad' : 'play') : q.view;
-      conn = { sock, seat, key: this.nextKey++, rank: this.nextRank++, view, id: q.id, host, tokens: LIMITS.burst, at: 0 };
+      conn = { sock, seat, key: this.nextKey++, rank: this.nextRank++, view, id: q.id, host, tokens: LIMITS.burst, at: 0, seen: now, viewAt: 0 };
     }
     this.conns.set(conn.seat, conn);
     this.save(conn);
@@ -175,6 +212,7 @@ export class RoomCore<S> {
   message(seat: number, key: number, text: string, now: number) {
     const c = this.conns.get(seat);
     if (!c || c.key !== key) return;
+    this.clock = Math.max(this.clock, now); c.seen = now;
     // 빈도: 초당 40통까지(잠깐 몰리는 것은 80통까지 봐준다). 넘으면 끊는다.
     c.tokens = Math.min(LIMITS.burst, c.tokens + (c.at ? (now - c.at) * LIMITS.perSec / 1000 : 0)); c.at = now;
     if (--c.tokens < 0) return this.kick(c, CLOSE.tooFast, 'fast');
@@ -202,8 +240,8 @@ export class RoomCore<S> {
       this.report();
     } else if (t === 'view') {                         // 게임 화면으로 볼지, 조작기로만 쓸지
       const v = (msg as { v?: unknown }).v;
-      if (c.host || (v !== 'play' && v !== 'pad') || v === c.view) return;
-      c.view = v; this.save(c); this.who();
+      if (c.host || (v !== 'play' && v !== 'pad') || v === c.view || now - c.viewAt < 1000) return;   // 바꿀 때마다 모두에게 알리므로 1초에 한 번만
+      c.view = v; c.viewAt = now; this.save(c); this.who();
     } else if (t === 'yield') {                        // 방장이 자리를 비운다(화면을 내려 둠): 게임 화면을 보는 다음 사람에게 넘긴다
       if (!c.host) return;
       const next = [...this.conns.values()].filter(o => o !== c && o.view === 'play').sort((a, b) => a.rank - b.rank)[0];
@@ -212,6 +250,7 @@ export class RoomCore<S> {
       this.save(c); this.save(next); this.who();
     } else if (t === 'hb') {                           // 방장의 살아 있음 알림: 공개 방 목록을 새로 고친다
       if (!c.host) return;
+      this.sweep();
       this.report();
       this.out.send(c.sock, '{"t":"hb"}');
     }

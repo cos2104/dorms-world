@@ -51,7 +51,7 @@ function drawDoreumi(c: CanvasRenderingContext2D, p: Player, now: number) {
   if (p.turnT > 0 || !p.side) name = moving && !p.turnT ? `front_${frame}` : 'front_1';
   else if (!p.on) name = `${p.side}_1`;
   else name = moving ? `${p.side}_${frame}` : `${p.side}_1`;
-  const [sx, sy, sw, sh] = ATLAS[name];
+  const [sx, sy, sw, sh] = ATLAS[name] ?? ATLAS.front_1;   // 모르는 그림 이름이어도 그리기가 멈추지 않게
   const bob = moving ? (Math.floor(now / MOTION.walkBobMs) % 2 ? -1 : 0) : (Math.sin(now / MOTION.idleBreathMs * Math.PI * 2 + p.i) > 0.3 ? -1 : 0);
   c.drawImage(tinted(p.color), sx, sy, sw, sh, Math.round(p.x + p.w / 2 - sw / 2), Math.round(p.y + p.h - sh + 1 + bob), sw, sh);
 }

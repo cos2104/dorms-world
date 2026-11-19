@@ -50,19 +50,15 @@ export default {
 
 export class Room extends DurableObject<Env> {
   private core: RoomCore<WebSocket>;
-  private joining: WebSocket | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.core = new RoomCore<WebSocket>({
       send: (ws, body) => { try { ws.send(body); } catch { /* 이미 끊긴 연결 */ } },
-      close: (ws, code, reason) => {
-        const shut = () => { try { ws.close(code, reason); } catch { /* 이미 끊긴 연결 */ } };
-        // 막 받아들인 연결은 응답(101)을 돌려준 뒤에 끊어야 끊김이 상대에게 끝까지 전해진다
-        if (ws === this.joining) this.ctx.waitUntil(scheduler.wait(20).then(shut)); else shut();
-      },
+      close: (ws, code, reason) => { try { ws.close(code, reason); } catch { /* 이미 끊긴 연결 */ } },
       save: (ws, saved) => { try { ws.serializeAttachment(saved); } catch { /* 이미 끊긴 연결 */ } },
       lobby: (code, room) => { this.ctx.waitUntil(this.env.LOBBY.getByName('lobby').report(code, room).catch(() => undefined)); },
+      pinged: ws => this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0,
     });
     // 잠들었다 깬 방: 살아 있는 연결에 붙여 둔 값으로 자리와 방 정보를 되살린다
     for (const ws of this.ctx.getWebSockets()) {
@@ -74,13 +70,19 @@ export class Room extends DurableObject<Env> {
   }
 
   async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url), code = url.pathname.split('/').pop() ?? '';
+    const url = new URL(request.url), code = url.pathname.split('/').pop() ?? '', q = readJoinQuery(url.searchParams);
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
+    const no = this.core.check(code, q);
+    if (no) {
+      // 들어오지 못하는 연결은 방에 붙이지 않는다: 까닭 번호를 글로 알리고 바로 끊는다(방에는 아무것도 남지 않는다)
+      server.accept();
+      server.send(JSON.stringify({ t: 'no', c: no[0] }));
+      server.close(no[0], no[1]);
+      return new Response(null, { status: 101, webSocket: client });
+    }
     this.ctx.acceptWebSocket(server);
-    this.joining = server;
-    this.core.join(server, code, readJoinQuery(url.searchParams));   // 들어오지 못하면 까닭 번호를 알리고 끊는다
-    this.joining = null;
+    this.core.join(server, code, q);
     return new Response(null, { status: 101, webSocket: client });
   }
 

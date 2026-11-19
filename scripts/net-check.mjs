@@ -250,7 +250,8 @@ if (!flag('only-shots')) {
   ok('공개 방이 처음 화면 목록에 뜬다', !!(await until(async () => await row.count() === 1, 10000)), pubCode);
   await row.click();
   ok('목록에서 눌러 들어간다', !!(await until(async () => (await E.room())?.me === 1 && (await D.room())?.seats?.length === 2)));
-  const list = await (await fetch(`${ROOM}/public`, { headers: { Origin: ORIGIN } })).json();
+  // 방 하나가 목록에 알리는 것은 1초에 한 번까지라, 사람 수는 방장의 다음 알림(5초마다) 안에 맞춰진다
+  const list = await until(async () => { const l = await (await fetch(`${ROOM}/public`, { headers: { Origin: ORIGIN } })).json(); return l.some(r => r.code === pubCode && r.count === 2) ? l : null; }, 8000, 300) ?? [];
   ok('공개 방 목록에 사람 수가 맞게 나온다', list.some(r => r.code === pubCode && r.count === 2), JSON.stringify(list));
   ok('비공개 방은 목록에 없다', !list.some(r => r.code === code));
   await D.close();
