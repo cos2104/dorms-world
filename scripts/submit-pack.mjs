@@ -97,6 +97,7 @@ if (args[0] === '--status') {
 // ---------- 보내기 ----------
 const id = args.find(a => !a.startsWith('--')) ?? '';
 const noteAt = args.indexOf('--note'), note = noteAt >= 0 ? String(args[noteAt + 1] ?? '').slice(0, 500) : '';
+if (/^[a-z0-9-]+\/[a-z0-9-]+$/.test(id) && id.split('/').some(part => part.length > 40)) stop('교과와 팩 폴더 이름은 각각 40자까지예요. 폴더 이름(과 pack.json 의 id)을 줄여 주세요.');
 if (!/^[a-z0-9-]{1,40}\/[a-z0-9-]{1,40}$/.test(id)) stop('어느 팩을 보낼지 적어 주세요. 예: npm run submit -- science/digestion\n(운영자에게 한마디를 붙이려면 뒤에 --note "한마디")');
 const dir = join('packs', ...id.split('/'));
 if (!existsSync(join(dir, 'pack.json'))) stop(`${dir}/pack.json 이 없어요. 팩 폴더 이름을 확인해 주세요.`);
@@ -113,7 +114,11 @@ say('1/3 검사하는 중이에요(팩 검사, 전체 시험, 빌드).');
 for (const [label, a] of [['팩 검사', ['run', 'check:packs']], ['전체 시험', ['test']], ['빌드', ['run', 'build']]]) {
   const r = spawnSync(win ? 'npm.cmd' : 'npm', a, { encoding: 'utf8', shell: win });   // 윈도우의 npm 은 npm.cmd 라 셸을 거쳐야 돈다
   if (r.error) stop(`npm 을 실행하지 못했어요(${r.error.message}). Node.js 가 설치돼 있는지 확인해 주세요.`);
-  if (r.status !== 0) stop(`${label}에서 걸렸어요. 아래를 고친 뒤 다시 보내 주세요.\n\n${((r.stdout ?? '') + (r.stderr ?? '')).split('\n').filter(l => /✗|×|FAIL|Error|걸렸|어요|→/.test(l)).slice(0, 25).join('\n')}`);
+  if (r.status !== 0) {
+    const lines = ((r.stdout ?? '') + (r.stderr ?? '')).split('\n').map(l => l.trimEnd()).filter(Boolean);
+    const picked = lines.filter(l => /✗|×|FAIL|error|걸렸|어요|→/i.test(l)).slice(0, 25);
+    stop(`${label}에서 걸렸어요. 아래를 고친 뒤 다시 보내 주세요.\n\n${(picked.length ? picked : lines.slice(-15)).join('\n')}`);   // 걸러서 남는 줄이 없으면 끝부분을 그대로 보여 준다
+  }
 }
 
 say('2/3 팩 파일을 모으는 중이에요.');
@@ -123,7 +128,7 @@ const walk = rel => {
     const path = rel ? `${rel}/${name}` : name, full = join(dir, path);
     const st = lstatSync(full);   // 링크는 따라가지 않는다(팩 밖의 파일이 딸려 가지 않게)
     if (st.isDirectory()) { walk(path); continue; }
-    if (!FILE_OK.test(path)) { skipped.push(path); continue; }
+    if (!FILE_OK.test(path)) { if (/^(stages|sprites)\//.test(path)) stop(`${path} 는 보낼 수 없는 이름이에요(이름은 영문 소문자, 숫자, 줄표로 40자까지). 빠진 채로 가면 게임이 깨지니 이름을 고쳐 주세요.`); skipped.push(path); continue; }
     if (!st.isFile() || st.nlink > 1) stop(`${path} 가 보통 파일이 아니에요(다른 파일로 이어진 링크). 팩에는 파일을 직접 넣어 주세요.`);
     const body = readFileSync(full, 'utf8');
     if (Buffer.byteLength(body) > MAX_FILE) stop(`${path} 가 너무 커요(파일 하나는 100KB까지).`);
@@ -137,7 +142,7 @@ if (!files['DESIGN.md']) stop('설계서(DESIGN.md)가 없어요. 설계서를 �
 if (!names.some(n => n.endsWith('.map.txt'))) stop('스테이지가 하나도 없어요.');
 if (names.length > MAX_COUNT) stop(`파일이 너무 많아요(${names.length}개, 120개까지).`);
 if (total > MAX_TOTAL) stop(`팩이 너무 커요(${Math.round(total / 1000)}KB, 300KB까지).`);
-if (skipped.length) say(`  보내지 않는 파일: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? ' 등' : ''}${skipped.some(s => /\.(png|webp)$/.test(s)) ? '\n  (만든 사람 사진은 도름스 프로필 사진을 써요)' : ''}`);
+if (skipped.length) say(`  보내지 않는 파일: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? ' 등' : ''}${skipped.some(s => /\.(png|webp)$/.test(s)) ? '\n  (만든 사람 그림은 기본 도름이로 보여요. 사진은 싣지 않아요)' : ''}`);
 
 say(`3/3 도름스로 보내는 중이에요(파일 ${names.length}개, ${Math.max(1, Math.round(total / 1000))}KB).`);
 const sent = await withKey(key => call('/api/world/packs', { method: 'POST', key, body: { id, files, ...(note ? { note } : {}) } }));
@@ -152,4 +157,4 @@ if (sent.status === 409 && d.error === 'busy') stop(msg || '이 팩은 이미 �
 if (sent.status === 429) stop(msg || '오늘 보낼 수 있는 횟수를 다 썼어요. 내일 다시 보내 주세요.');
 if (sent.status === 403) stop(msg || '보낼 수 있는 조건이 아직 안 됐어요. 도름스에서 교사 인증과 도름스 약속 동의를 확인해 주세요.');
 if (sent.status === 423) stop(msg || '도름스가 잠깐 글 올리기를 멈춰 두었어요. 조금 뒤에 다시 보내 주세요.');
-stop(`도름스가 받지 못했어요(${sent.status}). ${msg}`);
+stop(`도름스가 받지 못했어요(${sent.status}). ${msg}${msg ? ' ' : ''}잠시 뒤 다시 보내 주세요. 계속 안 되면 도름스 운영자에게 알려 주세요.`);

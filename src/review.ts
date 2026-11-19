@@ -100,7 +100,10 @@ export async function loadDormsReview(id: string): Promise<Review> {
   try { r = await fetch(`${DORMS}/api/world/requests/${id}`, { cache: 'no-store' }); } catch { throw new Error('도름스에서 요청을 읽지 못했어요. 인터넷을 확인하고 다시 열어 주세요.'); }
   if (r.status === 404) throw new Error('그런 요청이 없어요.');
   if (!r.ok) throw new Error(`요청을 읽지 못했어요(${r.status}).`);
-  const d = await r.json() as { mode?: unknown; number?: unknown; packId?: unknown; sha?: unknown; status?: unknown; title?: unknown; note?: unknown; decisionNote?: unknown; author?: { nickname?: unknown }; files?: unknown };
+  let got: unknown;
+  try { got = await r.json(); } catch { throw new Error('요청 내용을 읽지 못했어요. 잠시 뒤 다시 열어 주세요.'); }
+  if (!got || typeof got !== 'object') throw new Error('요청 내용을 읽지 못했어요. 잠시 뒤 다시 열어 주세요.');
+  const d = got as { mode?: unknown; number?: unknown; packId?: unknown; sha?: unknown; status?: unknown; title?: unknown; note?: unknown; decisionNote?: unknown; author?: { nickname?: unknown }; files?: unknown };
   const packId = str(d.packId, 90);
   if (!/^[a-z0-9-]{1,40}\/[a-z0-9-]{1,40}$/.test(packId)) throw new Error('요청의 팩 이름을 읽지 못했어요.');
   const files = d.files && typeof d.files === 'object' && !Array.isArray(d.files) ? d.files as Record<string, unknown> : {};

@@ -5,10 +5,10 @@ import { join, resolve } from 'node:path';
 
 const root = resolve(process.argv[2] ?? new URL('../packs/', import.meta.url).pathname);
 const problems = [];
-const NAME = /^[a-z0-9-]+$/;
+const NAME = /^[a-z0-9-]{1,40}$/;   // 교과·팩 폴더 이름은 40자까지(도름스로 보내는 길과 같은 한도)
 const STAGE = /^\d{2}\.(json|map\.txt)$/;
 const PIC = /^[a-z0-9-]+\.(png|webp)$/;
-const ART = /^[a-z0-9-]+\.txt$/;
+const ART = /^[a-z0-9-]{1,40}\.txt$/;   // 그림 이름도 40자까지
 const MAX_BYTES = 300 * 1024;
 
 function entries(dir) {

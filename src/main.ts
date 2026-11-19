@@ -89,7 +89,7 @@ function packScreen(p: Pack, people = 4, review: Review | null = null) {
       ${review.decisionNote && review.status === 'rejected' ? `<p class="w-review-line">돌려보내며 남긴 말: ${esc(review.decisionNote)}</p>` : ''}
       ${open && review.others.length ? `<p class="w-review-files">${review.others.slice(0, 8).map(esc).join(', ')}${review.others.length > 8 ? ' 등' : ''}</p>` : ''}
       ${review.extraPacks.length ? `<p class="w-review-line">다른 팩도 함께 바뀌었어요: ${review.extraPacks.map(esc).join(', ')}</p>` : ''}
-      <p class="w-review-line w-review-warn">도름스가 아직 확인하지 않은 요청이에요. 여기 적힌 글은 요청을 올린 사람이 쓴 것이에요.</p>
+      <p class="w-review-line w-review-warn">${viaDorms && review.status !== 'submitted' && review.status !== 'rejected' ? '' : '도름스가 아직 확인하지 않은 요청이에요. '}여기 적힌 글은 ${viaDorms ? '보낸 선생님' : '요청을 올린 사람'}이 쓴 것이에요.</p>
       <div class="w-review-actions">${viaDorms ? '' : `<a class="ar-key mustard" data-approve href="${esc(review.url)}" target="_blank" rel="noopener noreferrer">${icon('right', 17)}<span>${open ? '승인하러 가기' : '요청 보러 가기'}</span></a>`}${review.design ? `<button class="ar-key ghost" data-design aria-expanded="false">설계서 보기</button>` : ''}</div>
       <p class="w-review-line w-review-moved" hidden>그새 요청이 바뀌었어요. 화면을 새로 열어 다시 살펴본 뒤 승인해 주세요.</p>
       ${review.design ? `<pre class="w-design" hidden>${esc(review.design)}</pre>` : ''}
