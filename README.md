@@ -36,6 +36,8 @@ npm run dev          # http://localhost:5310/world/
 npm test             # 전체 시험
 npm run check:packs  # 팩 검사만
 npm run build
+npm run check:security          # 도름스체크 보안 점검(코드만)
+npm run units -- ms1 수학        # 오락실 단원 이름 찾기
 npm run submit -- <교과>/<팩>   # 도름스로 보내기
 ```
 

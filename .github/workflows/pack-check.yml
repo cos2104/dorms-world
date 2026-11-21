@@ -21,3 +21,4 @@ jobs:
       - run: npm run check:packs
       - run: npm test
       - run: npm run build
+      - run: npm run check:security   # 도름스체크(코드만). 걸린 것이 있으면 멈춘다

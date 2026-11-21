@@ -104,8 +104,16 @@ async function publish(item) {
   rmSync(dir, { recursive: true, force: true });
   for (const [name, body] of Object.entries(item.files)) { const to = join(dir, name); mkdirSync(dirname(to), { recursive: true }); writeFileSync(to, body); }
   // 만든 사람 사진은 팩에 넣지 않는다: 얼굴일 수 있는 사진을 공개 저장소 기록에 영영 남기지 않으려는 것이고, 운영자가 살펴본 판에도 들어 있지 않다
-  sh('git', ['add', '-A', '--', dir]);
-  if (!tryly('git', ['status', '--porcelain', '--', dir])) return { result: 'published', commit: sh('git', ['rev-parse', 'origin/main']), same: true };   // 이미 같은 내용이 실려 있다(지난번에 알리기만 실패)
+  // 오락실 카드와 공유 그림에 쓸 맵 미리보기를 함께 싣는다(우리 코드가 그린 그림이다. 안 되면 그림 없이 간다)
+  const shot = join('public', 'previews', `${subject}--${pack}.png`);
+  let preview = false;
+  try {
+    if (!existsSync('node_modules/.bin/vite')) sh('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], { timeout: 180_000 });
+    sh('node', ['scripts/render-previews.mjs', item.packId], { timeout: 120_000 });
+    preview = existsSync(shot);
+  } catch (err) { console.log(`  미리보기 그림을 뽑지 못했어요(${clean(String(err.stderr || err.message), 160)}). 그림 없이 실어요.`); }
+  sh('git', ['add', '-A', '--', dir, ...(preview ? [shot] : [])]);
+  if (!tryly('git', ['status', '--porcelain', '--', dir, ...(preview ? [shot] : [])])) return { result: 'published', commit: sh('git', ['rev-parse', 'origin/main']), same: true, preview: existsSync(shot) };   // 이미 같은 내용이 실려 있다(지난번에 알리기만 실패)
   if (item.mode === 'create' && exists) { sh('git', ['reset', '-q', '--hard', 'origin/main']); return { result: 'failed', reason: `${item.packId} 는 이미 있는 팩 이름이에요. 폴더 이름을 바꿔 다시 보내 달라고 알려 주세요.` }; }
   const message = `${item.mode === 'create' ? 'Add' : 'Update'} pack ${item.packId} (request ${no})\n\n${title}\n만든 사람: ${who} (도름스)\n도름스 요청 ${no}번, ${item.revision}번째 판. 운영자가 살펴보고 승인함.`;
   sh('git', ['-c', 'user.name=dorms-world', '-c', 'user.email=dorms-world@users.noreply.github.com', 'commit', '-q', ...(AUTHOR ? ['--author', AUTHOR] : []), '-m', message]);
@@ -131,7 +139,7 @@ async function publish(item) {
   const deploy = await waitDeploy(commit);
   console.log(`  병합 ${commit.slice(0, 7)}, 배포 ${deploy}`);
   if (deploy === 'failed') return { result: 'failed', reason: `병합(${commit.slice(0, 7)})은 됐는데 배포가 실패했어요. 배포 기록을 확인해 주세요.` };
-  return { result: 'published', commit, pr: Number(pr) };
+  return { result: 'published', commit, pr: Number(pr), preview };
 }
 
 async function main() {

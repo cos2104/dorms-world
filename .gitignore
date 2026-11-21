@@ -18,3 +18,4 @@ design-lab/
 # 비공개 메모(요구사항 원장 등). 저장소를 공개하므로 커밋하지 않는다
 .claude/local/
 .env.development.local
+.dorms-check/

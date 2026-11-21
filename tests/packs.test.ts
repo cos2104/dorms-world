@@ -6,7 +6,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import type { StageJson } from '../platform/stage';
+import { resolveNeed, type StageJson } from '../platform/stage';
 import { readSprites, readStage } from './pack-io';
 import { createWorld, step, type Pad } from '../platform/sim';
 
@@ -70,6 +70,26 @@ describe.each(packs)('팩 $id', ({ id, dir }) => {
         const moved = w.players.map(() => false);
         for (const m of [1, -1] as const) for (let f = 0; f < 30; f++) { step(w, w.players.map(() => ({ m, j: false })), 1 / 60); w.players.forEach((p, i) => { if (Math.abs(p.x - x0[i]) > 1) moved[i] = true; }); }
         expect(moved.every(Boolean), `${people}명 가운데 시작부터 못 움직이는 도름이가 있어요`).toBe(true);
+      }
+    });
+
+    it('열쇠와 문이 벽 안에 갇혀 있지 않다(시작 자리에서 빈 칸으로 이어진다)', () => {
+      const st = load(), T = 30, at = (c: number, r: number) => r * st.cols + c;
+      const open = (c: number, r: number) => c >= 0 && r >= 0 && c < st.cols && r < st.rows && !st.solid[at(c, r)];
+      const seen = new Uint8Array(st.cols * st.rows), todo: [number, number][] = [];
+      const start: [number, number] = [Math.floor(st.spawn.x / T), Math.max(0, Math.floor((st.spawn.y - 1) / T))];
+      if (open(...start)) { seen[at(...start)] = 1; todo.push(start); }
+      while (todo.length) { const [c, r] = todo.pop()!; for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) { const nc = c + dc, nr = r + dr; if (open(nc, nr) && !seen[at(nc, nr)]) { seen[at(nc, nr)] = 1; todo.push([nc, nr]); } } }
+      const reach = (x: number, y: number) => { const c = Math.floor(x / T), r = Math.floor(y / T); return open(c, r) && !!seen[at(c, r)]; };
+      if (st.key) expect(reach(st.key.x + 1, st.key.y + 1), '열쇠가 벽으로 막힌 곳에 있어요').toBe(true);
+      if (st.door) expect(reach(st.door.x + st.door.w / 2, st.door.y + st.door.h / 2), '문이 벽으로 막힌 곳에 있어요').toBe(true);
+    });
+
+    it('30명일 때 단추에 설 자리가 모자라지 않는다', () => {
+      const st = load();
+      for (const b of st.buttons) {
+        const need = resolveNeed(b.need, 30), room = Math.floor((b.w + 44) / 23);   // 걸쳐 선 사람까지 센 자리 수(재 본 값: 일곱 칸에 10명, 여섯 칸에 9명)
+        expect(need <= room, `단추 '${b.ch}': 30명일 때 ${need}명이 서야 하는데 ${room}명까지만 설 수 있어요. 단추를 옆으로 더 넓혀 주세요`).toBe(true);
       }
     });
 

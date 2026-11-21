@@ -12,7 +12,8 @@
     "check:packs": "node scripts/check-pack-files.mjs && vitest run tests/packs.test.ts",
     "submit": "node scripts/submit-pack.mjs",
     "submit:code": "node scripts/submit-code.mjs",
-    "units": "node scripts/units.mjs"
+    "units": "node scripts/units.mjs",
+    "check:security": "node scripts/security-check.mjs"
   },
   "devDependencies": {
     "playwright": "^1.58.2",

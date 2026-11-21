@@ -25,8 +25,8 @@ const meta = JSON.parse(readFileSync(join(dir, 'pack.json'), 'utf8'));
 if (meta.id !== id) stop(`pack.json 의 id("${meta.id}")가 폴더 이름(${id})과 달라요.`);
 
 // 1. 검사(통과해야 올린다)
-say('1/4 검사하는 중이에요(팩 검사, 전체 시험, 빌드).');
-for (const [label, args] of [['팩 검사', ['run', 'check:packs']], ['전체 시험', ['test']], ['빌드', ['run', 'build']]]) {
+say('1/4 검사하는 중이에요(팩 검사, 전체 시험, 빌드, 도름스체크 보안 점검).');
+for (const [label, args] of [['팩 검사', ['run', 'check:packs']], ['전체 시험', ['test']], ['빌드', ['run', 'build']], ['도름스체크 보안 점검', ['run', 'check:security']]]) {
   const r = spawnSync(win ? 'npm.cmd' : 'npm', args, { encoding: 'utf8', shell: win });   // 윈도우의 npm 은 npm.cmd 라 셸을 거쳐야 돈다
   if (r.error) stop(`npm 을 실행하지 못했어요(${r.error.message}). Node.js 가 설치돼 있는지 확인해 주세요.`);
   if (r.status !== 0) stop(`${label}에서 걸렸어요. 아래를 고친 뒤 다시 올려 주세요.\n\n${((r.stdout ?? '') + (r.stderr ?? '')).split('\n').filter(l => /✗|×|FAIL|Error|걸렸|어요|→/.test(l)).slice(0, 25).join('\n')}`);

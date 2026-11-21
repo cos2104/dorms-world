@@ -112,8 +112,8 @@ const git = spawnSync('git', ['status', '--porcelain', '--', 'platform', 'src', 
 const touched = git.status === 0 ? git.stdout.split('\n').map(l => l.slice(3).trim()).filter(Boolean) : [];
 if (touched.length && !args.includes('--pack-only')) stop(`판을 고친 파일이 있어요(${touched.slice(0, 4).join(', ')}${touched.length > 4 ? ' 등' : ''}).\n이 명령은 팩 폴더의 자료만 보내요. 새 장치를 더한 것이라면 kit/DEVICE_GUIDE.md 의 '올리기'를 따라 npm run submit:code -- ${id} 로 올려 주세요(GitHub 계정이 필요해요).\n판은 실수로 바뀐 것이고 팩만 보내려면 뒤에 --pack-only 를 붙여 주세요.`);
 
-say('1/3 검사하는 중이에요(팩 검사, 전체 시험, 빌드).');
-for (const [label, a] of [['팩 검사', ['run', 'check:packs']], ['전체 시험', ['test']], ['빌드', ['run', 'build']]]) {
+say('1/3 검사하는 중이에요(팩 검사, 전체 시험, 빌드, 도름스체크 보안 점검).');
+for (const [label, a] of [['팩 검사', ['run', 'check:packs']], ['전체 시험', ['test']], ['빌드', ['run', 'build']], ['도름스체크 보안 점검', ['run', 'check:security']]]) {
   const r = spawnSync(win ? 'npm.cmd' : 'npm', a, { encoding: 'utf8', shell: win });   // 윈도우의 npm 은 npm.cmd 라 셸을 거쳐야 돈다
   if (r.error) stop(`npm 을 실행하지 못했어요(${r.error.message}). Node.js 가 설치돼 있는지 확인해 주세요.`);
   if (r.status !== 0) {
