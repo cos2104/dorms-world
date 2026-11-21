@@ -14,8 +14,12 @@ export const MAX_SEATS = 30;
 export const LIMITS = { guest: 256, snap: 32 * 1024, host: 2048, pass: 1024, perSec: 40, burst: 80 } as const;
 /** 닉네임 10자, 방 제목 20자. 닉네임 신청은 연결마다 10초에 한 번, 출입증 내기는 3초에 한 번. */
 export const NICK_MAX = 10, TITLE_MAX = 20, ASK_GAP = 10_000, PASS_GAP = 3000, PASS_MAX = 800;
-/** 순위에 올릴 수 있는 시간: 3초 이상 3시간 이하. 방이 본 시간(판이 열린 뒤 흐른 시간)보다 3초 넘게 길 수 없다. */
-export const RANK = { min: 3000, max: 3 * 3600 * 1000, slack: 3000 } as const;
+/**
+ * 순위에 올리는 시간은 방장이 알린 값이 아니라 방 서버가 잰 값이다(판이 열린 때부터 깼다는 글이 온 때까지). 3초 이상 3시간 이하.
+ * 방장이 알린 시간은 견주는 데만 쓴다: 방 서버가 잰 시간보다 1.5초 넘게 길거나 2초 넘게 짧으면 받지 않는다(멈춰 있던 판, 꾸민 시간).
+ * 한 방이 올리는 것은 같은 (팩, 스테이지, 판)마다 한 번, 방 전체로 1분에 6번까지. 스테이지 번호는 0~29.
+ */
+export const RANK = { min: 3000, max: 3 * 3600 * 1000, slack: 1500, under: 2000, perMin: 6, stages: 30 } as const;
 /** 연결을 끊을 때의 까닭 번호(브라우저가 읽을 수 있는 4000번대). */
 export const CLOSE = { bad: 4000, full: 4003, none: 4004, tooBig: 4007, tooFast: 4008, taken: 4009, replaced: 4010 } as const;
 export const PUBLIC_TTL = 30_000;
@@ -131,8 +135,8 @@ export async function verifyPass(pass: unknown, secret: string | null | undefine
 // ---------- 교사 방 ----------
 /** 방에 있는 모두가 아는 교사 방 정보: 방 제목, 순위에 올리는지, 교사 연결의 자리 번호. */
 export type ClassInfo = { title: string; rank: boolean; teachers: number[] };
-/** 방 서버만 아는 교사 방 정보: u 교사의 회원 번호, n 교사의 닉네임, done 순위에 올린 마지막 판 번호. */
-export type Klass = { u: string; n: string; title: string; rank: boolean; done: number };
+/** 방 서버만 아는 교사 방 정보: u 교사의 회원 번호, n 교사의 닉네임, done 순위에 올린 마지막 판 번호, big 함께 보기 방으로 만들었는지(방을 만든 때의 값). */
+export type Klass = { u: string; n: string; title: string; rank: boolean; done: number; big?: boolean };
 export type NameList = [number, string][];
 export type RankReport = { run: number; pack: string; stage: number; ms: number; players: number; title: string; teacher: string };
 export type UseReport = { pack: string; teacher: string };
@@ -140,7 +144,7 @@ function cleanKlass(x: unknown): Klass | null {
   if (!x || typeof x !== 'object') return null;
   const o = x as Record<string, unknown>;
   if (typeof o.u !== 'string' || !UUID.test(o.u) || typeof o.title !== 'string') return null;
-  return { u: o.u, n: cleanLine(o.n, 40), title: o.title === '' ? '' : cleanTitle(o.title), rank: o.rank === true, done: int(o.done, -1, 1_000_000_000) ? o.done : -1 };
+  return { u: o.u, n: cleanLine(o.n, 40), title: o.title === '' ? '' : cleanTitle(o.title), rank: o.rank === true, done: int(o.done, -1, 1_000_000_000) ? o.done : -1, big: o.big === true };
 }
 /** 받은 교사 방 정보(화면 쪽에서 쓴다). 어긋나면 null. */
 export function readClassInfo(x: unknown): ClassInfo | null {
@@ -227,7 +231,9 @@ export class RoomCore<S> {
   private clock = 0;          // 마지막으로 본 때(밀리초)
   private cls: Klass | null = null;      // 교사 방이면 그 정보(보통 방은 null)
   private runAt = 0;                     // 지금 판이 열린 때(밀리초). 모르면 0
-  private used = new Set<string>();      // 이 방에서 열어 본 팩(쓰임 알림은 팩마다 한 번)
+  private used = new Set<string>();      // 이 방에서 열어 본 팩(쓰임 알림은 팩마다 한 번, 한 방에서 열두 팩까지)
+  private rankTimes: number[] = [];      // 지난 1분 동안 순위를 올린 때들
+  private rankedIds = new Set<string>();    // 순위에 올린 (팩|스테이지|판)
 
   constructor(private out: Out<S>) {}
 
@@ -249,7 +255,8 @@ export class RoomCore<S> {
   /** 교사 방에서 어떤 팩이 처음 열리면 한 번 알린다. */
   private useNow() {
     const pack = this.info.pack;
-    if (!this.cls || this.info.stage < 0 || !pack || this.used.has(pack) || this.used.size >= 64) return;
+    // 방 정보의 팩 · 스테이지는 방장이 준 값이다: 바깥(도름스)에 알리기 전에 모양과 범위를 다시 본다
+    if (!this.cls || !PACK_ID.test(pack) || !int(this.info.stage, 0, RANK.stages - 1) || this.used.has(pack) || this.used.size >= 12) return;
     this.used.add(pack);
     this.out.use?.({ pack, teacher: this.cls.u });
   }
@@ -339,7 +346,7 @@ export class RoomCore<S> {
     if (no) return this.refuse(sock, no[0], no[1]);
     const same = q.id ? [...this.conns.values()].find(c => c.id === q.id) : undefined;
     const first = this.conns.size === 0;
-    if (first) { this.code = code; this.info = emptyRoom(q.pub, q.big); this.told = ''; this.cls = null; this.runAt = 0; this.used.clear(); }
+    if (first) { this.code = code; this.info = emptyRoom(q.pub, q.big); this.told = ''; this.cls = null; this.runAt = 0; this.rankTimes = []; this.rankedIds.clear(); this.used.clear(); }
 
     let conn: Conn<S>;
     if (same) {
@@ -388,7 +395,7 @@ export class RoomCore<S> {
     if (!c || c.key !== key) return;
     this.clock = Math.max(this.clock, now);
     let ok = false;
-    if (claims && !this.cls && c.maker) { this.cls = { u: claims.u, n: claims.n, title: setup.title, rank: setup.rank && !!setup.title, done: -1 }; ok = true; }
+    if (claims && !this.cls && c.maker) { this.cls = { u: claims.u, n: claims.n, title: setup.title, rank: setup.rank && !!setup.title, done: -1, big: this.info.big }; ok = true; }
     else if (claims && this.cls && this.cls.u === claims.u) ok = true;
     this.out.send(c.sock, `{"t":"pass","ok":${ok ? 1 : 0}}`);
     if (!ok) return;
@@ -483,15 +490,25 @@ export class RoomCore<S> {
       this.save(to);
       this.tellAsks();
     } else if (t === 'won') {                          // 방장: 스테이지를 다 함께 깼다. 교사 방이고 순위에 올리기가 켜져 있을 때만 도름스에 적는다
-      const k = this.cls, o = msg as { r?: unknown; ms?: unknown };
+      const k = this.cls, o = msg as { r?: unknown; ms?: unknown }, { pack, stage, run } = this.info;
       if (!c.host || !k?.rank || !k.title || !this.out.rank) return;
-      if (!int(o.r, 0, 1_000_000_000) || o.r !== this.info.run || this.info.stage < 0 || !this.info.pack || k.done === o.r) return;   // 지금 열려 있는 판만, 판마다 한 번
-      if (!int(o.ms, RANK.min, RANK.max) || !this.runAt || o.ms > now - this.runAt + RANK.slack) return;   // 판이 열린 뒤 흐른 시간보다 길 수 없다
-      const players = this.info.order.filter(s => this.conns.has(s)).length;
-      if (players < 1) return;
-      k.done = o.r;
+      // 지금 열려 있는 판만. 팩 · 스테이지는 방장이 준 값이라 모양과 범위를 다시 본다(실린 팩인지는 도름스가 본다)
+      if (!int(o.r, 0, 1_000_000_000) || o.r !== run || !PACK_ID.test(pack) || !int(stage, 0, RANK.stages - 1)) return;
+      // 걸린 시간은 방 서버가 잰다. 방장이 알린 시간은 그것과 양쪽으로 가까울 때만 받는다(실제보다 짧게 알려 순위를 꾸미지 못한다)
+      const took = this.runAt ? now - this.runAt : -1;
+      if (!int(took, RANK.min, RANK.max) || !int(o.ms, RANK.min, RANK.max) || o.ms > took + RANK.slack || o.ms < took - RANK.under) return;
+      // 교사가 방에 있을 때만(교사가 연 방이라도 학생만 남아 올리는 기록은 받지 않는다)
+      if (![...this.conns.values()].some(x => x.teacher)) return;
+      const id = `${pack}|${stage}|${run}`;
+      this.rankTimes = this.rankTimes.filter(at => now - at < 60_000);
+      if (this.rankedIds.has(id) || this.rankTimes.length >= RANK.perMin) return;   // 같은 판은 한 번, 방 전체로 1분에 여섯 번까지
+      // 사람 수는 방 서버가 아는 자리 수다(방장이 준 차례를 쓰지 않는다). 함께 보기로 만든 방에서 방을 만든 기기가 방장이면 그 큰 화면 한 자리는 뺀다
+      const players = Math.max(1, this.conns.size - (k.big && c.maker ? 1 : 0));
+      if (this.rankedIds.size >= 500) this.rankedIds.clear();
+      this.rankedIds.add(id); this.rankTimes.push(now);
+      k.done = run;
       this.saveClass();
-      this.out.rank({ run: o.r, pack: this.info.pack, stage: this.info.stage, ms: o.ms, players, title: k.title, teacher: k.u });
+      this.out.rank({ run, pack, stage, ms: took, players, title: k.title, teacher: k.u });
     }
   }
 

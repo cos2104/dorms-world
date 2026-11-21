@@ -258,7 +258,7 @@ export class RoomLink {
   askName(nick: string) { const v = cleanNick(nick); if (v && this.cls) this.raw(JSON.stringify({ t: 'name', v })); return !!v; }
   /** 교사: 그 자리의 닉네임을 승인하거나(yes) 반려한다. nick 은 내가 본 그 닉네임. */
   judge(seat: number, yes: boolean, nick: string) { if (this.teacher) this.raw(JSON.stringify({ t: 'ok', s: seat, y: yes ? 1 : 0, v: nick })); }
-  /** 방장: 스테이지를 다 함께 깼다(걸린 시간, 밀리초). 교사 방이고 순위에 올리기가 켜져 있을 때만 방 서버가 받는다. */
+  /** 방장: 스테이지를 다 함께 깼다(내가 잰 시간, 밀리초). 교사 방이고 순위에 올리기가 켜져 있을 때만 방 서버가 받는다. 순위에 적히는 시간은 방 서버가 잰 값이다. */
   sendWon(ms: number) { if (this.isHost && this.cls?.rank) this.raw(JSON.stringify({ t: 'won', r: this.room.run, ms: Math.round(ms) })); }
   /** 그 자리에 보일 닉네임(없으면 빈 글). */
   nickOf(seat: number) { return this.names.get(seat) ?? ''; }

@@ -349,18 +349,18 @@ describe('교사 방: 순위와 쓰임 알림', () => {
     return { r, t, a, b };
   }
 
-  it('방장이 깼다고 알리면 방이 아는 값(팩 · 스테이지 · 인원 · 방 제목 · 교사)으로 순위에 올리고, 받은 등수를 모두에게 알린다', () => {
+  it('방장이 깼다고 알리면 방이 아는 값(팩 · 스테이지 · 인원 · 방 제목 · 교사)과 방 서버가 잰 시간으로 순위에 올리고, 받은 등수를 모두에게 알린다', () => {
     const { r, t, a } = playing();
     r.say(t, { t: 'won', r: 3, ms: 83_450, title: '가짜 제목', players: 30, pack: 'x/y', teacher: OTHER }, 1000 + 83_600);
-    expect(r.ranks).toEqual([{ run: 3, pack: 'math/scale-equation', stage: 1, ms: 83_450, players: 3, title: '3학년 2반', teacher: TEACHER }]);
-    r.core.ranked(3, 83_450, 3, true);
-    expect(r.last(a, 'rank')).toEqual({ t: 'rank', r: 3, ms: 83_450, rank: 3, best: 1 });
+    expect(r.ranks).toEqual([{ run: 3, pack: 'math/scale-equation', stage: 1, ms: 83_600, players: 3, title: '3학년 2반', teacher: TEACHER }]);   // 시간은 판이 열린 때(1초)부터 잰 값
+    r.core.ranked(3, 83_600, 3, true);
+    expect(r.last(a, 'rank')).toEqual({ t: 'rank', r: 3, ms: 83_600, rank: 3, best: 1 });
     expect(JSON.stringify(a.got)).not.toContain(TEACHER);
   });
 
   it('도름스가 답하지 않아도 방은 그대로 가고, 올리지 못했다고(등수 0) 알린다', () => {
     const { r, t, a } = playing();
-    r.say(t, { t: 'won', r: 3, ms: 60_000 }, 62_000);
+    r.say(t, { t: 'won', r: 3, ms: 60_000 }, 61_000);
     r.core.ranked(3, 60_000, 0, false);
     expect(r.last(a, 'rank')).toEqual({ t: 'rank', r: 3, ms: 60_000, rank: 0, best: 0 });
     r.say(t, { t: 'room', room: { ...INFO, stage: 2, run: 4 } }, 70_000);
@@ -371,40 +371,87 @@ describe('교사 방: 순위와 쓰임 알림', () => {
 
   it('손님이 방장인 척 보낸 순위는 버린다', () => {
     const { r, t, a } = playing();
-    r.say(a, { t: 'won', r: 3, ms: 3000 }, 10_000);
+    r.say(a, { t: 'won', r: 3, ms: 9000 }, 10_000);
     expect(r.ranks).toEqual([]);
     r.say(t, { t: 'won', r: 3, ms: 9000 }, 10_000);
     expect(r.ranks.length).toBe(1);
   });
 
-  it('판마다 한 번만 올린다. 지금 열려 있는 판이 아니면 버린다', () => {
+  it('방장이 걸린 시간을 실제보다 짧게 알려 순위를 꾸미지 못한다: 방 서버가 잰 시간과 양쪽으로 가까울 때만 받고, 적는 값은 방 서버가 잰 값이다', () => {
+    const open = 1000;
+    for (const [said, at] of [[3000, open + 60_000], [57_999, open + 60_000], [10_000, open + 3600_000], [61_501, open + 60_000], [60_000, open + 58_499]] as const) {
+      const { r, t } = playing();
+      r.say(t, { t: 'won', r: 3, ms: said }, at);                                          // 1분 걸린 판을 3초라고 하거나, 2초 넘게 줄이거나, 1.5초 넘게 늘린다
+      expect([said, at, r.ranks]).toEqual([said, at, []]);
+    }
+    for (const [said, at] of [[58_000, open + 60_000], [61_500, open + 60_000], [60_000, open + 60_000]] as const) {
+      const { r, t } = playing();
+      r.say(t, { t: 'won', r: 3, ms: said }, at);
+      expect(r.ranks.map(x => x.ms)).toEqual([60_000]);                                    // 방장이 뭐라고 했든 적히는 것은 방 서버가 잰 1분
+    }
+    expect(RANK.under).toBeLessThan(RANK.min);                                             // 여유는 가장 짧은 기록보다 분명히 작다
+    expect(RANK.slack).toBeLessThan(RANK.min);
+  });
+
+  it('시간은 3초 이상 3시간 이하다(방 서버가 잰 값으로 본다). 모양이 어긋난 값은 버린다', () => {
+    const quick = playing();
+    quick.r.say(quick.t, { t: 'won', r: 3, ms: 3000 }, 1000 + RANK.min - 1);               // 판이 열린 지 3초가 안 됐다
+    for (const bad of [1.5, '9000', null, -1, RANK.min - 1]) quick.r.say(quick.t, { t: 'won', r: 3, ms: bad }, 1000 + 9000);
+    expect(quick.r.ranks).toEqual([]);
+    quick.r.say(quick.t, { t: 'won', r: 3, ms: 9000 }, 1000 + 9000);
+    expect(quick.r.ranks.map(x => x.ms)).toEqual([9000]);
+    const long = playing();
+    long.r.say(long.t, { t: 'won', r: 3, ms: RANK.max }, 1000 + RANK.max + 1);                // 3시간을 넘겼다
+    expect(long.r.ranks).toEqual([]);
+    const edge = playing();
+    edge.r.say(edge.t, { t: 'won', r: 3, ms: RANK.max }, 1000 + RANK.max);
+    expect(edge.r.ranks.map(x => x.ms)).toEqual([RANK.max]);
+  });
+
+  it('같은 판은 한 번만 올린다. 지금 열려 있는 판이 아니면 버린다', () => {
     const { r, t } = playing();
     r.say(t, { t: 'won', r: 2, ms: 9000 }, 10_000);                                        // 지난 판
     r.say(t, { t: 'won', r: 4, ms: 9000 }, 10_000);                                        // 아직 없는 판
     expect(r.ranks).toEqual([]);
     r.say(t, { t: 'won', r: 3, ms: 9000 }, 10_000);
-    r.say(t, { t: 'won', r: 3, ms: 8000 }, 10_100);
+    r.say(t, { t: 'won', r: 3, ms: 9100 }, 10_100);
     expect(r.ranks.map(x => x.ms)).toEqual([9000]);
     r.say(t, { t: 'room', room: { ...INFO, stage: -1 } }, 11_000);                          // 스테이지를 고르는 중
+    r.say(t, { t: 'won', r: 3, ms: 10_000 }, 11_100);
     r.say(t, { t: 'room', room: { ...INFO, run: 4 } }, 12_000);
     r.say(t, { t: 'won', r: 4, ms: 5000 }, 17_500);
-    expect(r.ranks.map(x => x.run)).toEqual([3, 4]);
+    expect(r.ranks.map(x => [x.run, x.ms])).toEqual([[3, 9000], [4, 5500]]);
+    r.say(t, { t: 'room', room: { ...INFO, stage: -1, run: 4 } }, 18_000);                  // 같은 판 번호로 다시 열어도(방장이 판 번호를 올리지 않아도) 다시 올리지 못한다
+    r.say(t, { t: 'room', room: { ...INFO, run: 4 } }, 19_000);
+    r.say(t, { t: 'won', r: 4, ms: 4000 }, 23_000);
+    expect(r.ranks.length).toBe(2);
   });
 
-  it('시간은 3초 이상 3시간 이하이고, 판이 열린 뒤 흐른 시간보다 길 수 없다', () => {
+  it('한 방이 순위를 올리는 것은 1분에 여섯 번까지다(판을 잇달아 열어 쏟아 내지 못한다)', () => {
     const { r, t } = playing();
-    r.say(t, { t: 'won', r: 3, ms: RANK.min - 1 }, 50_000);
-    r.say(t, { t: 'won', r: 3, ms: 1.5 }, 50_000);
-    r.say(t, { t: 'won', r: 3, ms: '9000' }, 50_000);
-    r.say(t, { t: 'won', r: 3, ms: 60_000 }, 1000 + 60_000 - RANK.slack - 1);                 // 판이 열린 지 57초인데 60초 걸렸다고 한다
-    expect(r.ranks).toEqual([]);
-    r.say(t, { t: 'won', r: 3, ms: 60_000 }, 1000 + 60_000 - RANK.slack);
-    expect(r.ranks.map(x => x.ms)).toEqual([60_000]);
-    const long = playing();
-    long.r.say(long.t, { t: 'won', r: 3, ms: RANK.max + 1 }, 4 * 3600_000);                  // 3시간을 넘는 기록
-    expect(long.r.ranks).toEqual([]);
-    long.r.say(long.t, { t: 'won', r: 3, ms: RANK.max }, 4 * 3600_000);
-    expect(long.r.ranks.map(x => x.ms)).toEqual([RANK.max]);
+    for (let i = 0; i < 10; i++) {                                                         // 3.5초마다 새 판을 열고 3초 만에 깼다고 한다
+      r.say(t, { t: 'room', room: { ...INFO, run: 10 + i } }, 2000 + i * 3500);
+      r.say(t, { t: 'won', r: 10 + i, ms: 3000 }, 2000 + i * 3500 + 3000);
+    }
+    expect(r.ranks.map(x => x.run)).toEqual([10, 11, 12, 13, 14, 15]);
+    r.say(t, { t: 'room', room: { ...INFO, run: 30 } }, 70_000);                            // 1분이 지나면 다시 올릴 수 있다
+    r.say(t, { t: 'won', r: 30, ms: 4000 }, 74_000);
+    expect(r.ranks.length).toBe(7);
+  });
+
+  it('팩 모양과 스테이지 범위(0~29)를 방 서버가 다시 본다: 어긋나면 순위도 쓰임도 알리지 않는다', () => {
+    const { r, t } = playing();
+    r.say(t, { t: 'room', room: { ...INFO, stage: 30, run: 4 } }, 2000);                    // 방 정보로는 받는 값이지만(99 까지) 바깥으로는 알리지 않는다
+    r.say(t, { t: 'won', r: 4, ms: 5000 }, 7000);
+    r.say(t, { t: 'room', room: { ...INFO, pack: 'new/pack', stage: 30, run: 5 } }, 8000);
+    expect([r.ranks, r.uses.map(u => u.pack)]).toEqual([[], ['math/scale-equation']]);
+    r.say(t, { t: 'room', room: { ...INFO, stage: 29, run: 6 } }, 9000);
+    r.say(t, { t: 'won', r: 6, ms: 5000 }, 14_000);
+    expect(r.ranks.map(x => x.stage)).toEqual([29]);
+    for (const pack of ['../x', 'a/b/c', 'A/b', 'x'.repeat(70)]) {                        // 모양이 어긋난 팩 이름은 방 정보에서부터 받지 않는다
+      r.say(t, { t: 'room', room: { ...INFO, pack, run: 7 } }, 15_000);
+      expect(r.core.info.pack).toBe('math/scale-equation');
+    }
   });
 
   it('순위에 올리기를 켜지 않았거나, 방 제목이 없거나, 학생끼리 연 방이면 올리지 않는다', () => {
@@ -417,19 +464,32 @@ describe('교사 방: 순위와 쓰임 알림', () => {
     expect(untitled.r.ranks).toEqual([]);
   });
 
-  it('인원은 방장이 적은 차례 가운데 실제로 방에 있는 사람만 센다', () => {
+  it('사람 수는 방 서버가 아는 자리 수다(방장이 준 차례를 쓰지 않는다). 함께 보기로 만든 방의 큰 화면 한 자리는 뺀다', () => {
     const { r, t } = playing();
-    r.say(t, { t: 'room', room: { ...INFO, order: [0, 1, 2, 7, 8, 9] } }, 2000);
+    r.say(t, { t: 'room', room: { ...INFO, order: [1] } }, 2000);                           // 방장이 한 명뿐이라고 해도
     r.say(t, { t: 'won', r: 3, ms: 9000 }, 10_000);
-    expect(r.ranks[0].players).toBe(3);
+    expect(r.ranks[0].players).toBe(3);                                                    // 방에 있는 자리는 셋이다
+    const big = room(), screen = big.enter('큰 화면', { mode: 'create', big: true });
+    big.say(screen, { t: 'pass', v: 'good', title: '함께 보기 반', rank: 1 });
+    for (let i = 0; i < 28; i++) big.enter(`조작기 ${i + 1}`);
+    big.say(screen, { t: 'room', room: { ...INFO, big: true, order: [] } }, 1000);
+    big.say(screen, { t: 'won', r: 3, ms: 9000 }, 10_000);
+    expect(big.ranks[0].players).toBe(28);                                                 // 큰 화면은 세지 않는다
   });
 
-  it('교사가 나간 뒤 방장이 된 학생이 깨도 그 방의 제목과 교사로 올라간다(방은 이어진다)', () => {
+  it('교사가 방에 없는 동안에는 순위를 올리지 않는다(교사가 연 방이라도 학생만 남아 올리는 기록은 받지 않는다). 교사가 돌아오면 다시 올라간다', () => {
     const { r, t, a } = playing();
     r.bye(t);
     expect(a.saved).toMatchObject({ host: true, cls: { u: TEACHER, title: '3학년 2반' } });   // 교사 방 정보는 새 방장의 연결로 옮겨 붙는다
     r.say(a, { t: 'won', r: 3, ms: 9000 }, 10_000);
-    expect(r.ranks).toEqual([{ run: 3, pack: 'math/scale-equation', stage: 1, ms: 9000, players: 2, title: '3학년 2반', teacher: TEACHER }]);
+    expect(r.ranks).toEqual([]);
+    r.say(a, { t: 'room', room: { ...INFO, run: 4, order: [1, 2] } }, 20_000);
+    const back = r.enter('돌아온 선생님');
+    r.say(a, { t: 'won', r: 4, ms: 5000 }, 25_000);                                        // 들어오기만 하고 출입증을 아직 내지 않았다
+    expect(r.ranks).toEqual([]);
+    r.say(back, { t: 'pass', v: 'good' }, 25_100);
+    r.say(a, { t: 'won', r: 4, ms: 5200 }, 25_200);
+    expect(r.ranks).toEqual([{ run: 4, pack: 'math/scale-equation', stage: 1, ms: 5200, players: 3, title: '3학년 2반', teacher: TEACHER }]);
   });
 
   it('쓰임 알림: 교사 방에서 어떤 팩이 처음 열릴 때 팩마다 한 번. 학생끼리 연 방에서는 부르지 않는다', () => {
@@ -445,6 +505,12 @@ describe('교사 방: 순위와 쓰임 알림', () => {
     const kids = room(), k = kids.enter('학생', { mode: 'create' });
     kids.say(k, { t: 'room', room: INFO }, 1000);
     expect(kids.uses).toEqual([]);
+  });
+
+  it('쓰임 알림은 한 방에서 열두 팩까지다(방장이 팩 이름을 바꿔 가며 쏟아 내지 못한다)', () => {
+    const { r, t } = playing();
+    for (let i = 0; i < 30; i++) r.say(t, { t: 'room', room: { ...INFO, pack: `fake/pack-${i}`, run: 30 + i } }, 2000 + i * 100);
+    expect(r.uses.length).toBe(12);
   });
 
   it('스테이지를 연 뒤에 출입증이 확인돼도 쓰임을 알린다', () => {
@@ -669,12 +735,13 @@ describe('연결(net): 교사 방', () => {
     await tick();
     t.setRoom({ ...INFO, order: [0, 1] });
     await tick();
-    (net.rooms.get(CODE) as unknown as { runAt: number }).runAt = Date.now() - 20_000;      // 20초 전에 판이 열렸다고 치고
+    (net.rooms.get(CODE) as unknown as { runAt: number }).runAt = Date.now() - 15_300;      // 15초쯤 전에 판이 열렸다고 치고
     a.sendWon(15_000);                                                                     // 손님은 보내지도 않는다
     t.sendWon(15_000.4);
     await tick();
-    expect(net.ranks).toEqual([{ run: 3, pack: 'math/scale-equation', stage: 1, ms: 15_000, players: 2, title: '3학년 2반', teacher: TEACHER }]);
-    expect(got).toEqual([{ run: 3, ms: 15_000, rank: 2, best: true }]);
+    expect(net.ranks).toMatchObject([{ run: 3, pack: 'math/scale-equation', stage: 1, players: 2, title: '3학년 2반', teacher: TEACHER }]);
+    expect(Math.abs(net.ranks[0].ms - 15_300)).toBeLessThan(200);                           // 적히는 시간은 방 서버가 잰 값
+    expect(got).toEqual([{ run: 3, ms: net.ranks[0].ms, rank: 2, best: true }]);
     expect(net.uses).toEqual([{ pack: 'math/scale-equation', teacher: TEACHER }]);
     t.leave(); a.leave();
   });
