@@ -16,6 +16,7 @@ import { esc } from '../platform/text';
 import { makeScreen } from './make';
 import { headOf, loadDormsReview, loadReview, type Review } from './review';
 import * as online from './online';
+import { creatorLine, initProfiles } from './profile';
 
 const BASE = import.meta.env.BASE_URL;
 const app = document.getElementById('app')!;
@@ -24,7 +25,6 @@ let stop: (() => void) | null = null;
 const levelWord = (d: number) => (d <= 2 ? '쉬움' : d === 3 ? '보통' : '어려움');
 const levelOf = (p: Pack) => { const ds = p.stages.map(s => s.difficulty); const lo = levelWord(Math.min(...ds)), hi = levelWord(Math.max(...ds)); return lo === hi ? lo : `${lo}~${hi}`; };   // 1·2 가 둘 다 '쉬움'이면 '쉬움~쉬움' 대신 '쉬움'
 const peopleOf = (p: Pack) => `${p.players.min}~${p.players.max}명`;
-const avatarOf = (p: Pack) => p.avatarUrl ?? `${BASE}sprites/creator-default.png`;
 
 /** 단추 약속: 화면마다 주 행동 하나만 노랑(mustard), 나머지는 테두리 단추(ghost). 고르기 단추는 ghost + aria-pressed. */
 function shell(inner: string, status: string, right: string, back = '') {
@@ -47,7 +47,7 @@ function home(family = '전체') {
       <div class="ar-card-body">
         <div class="ar-card-title">${esc(p.name)}</div>
         <div class="lab-card-meta-row"><span class="ar-tagpill">${esc(p.family)}</span><span class="ar-count">${levelOf(p)}</span><span class="ar-count">${peopleOf(p)}</span></div>
-        <div class="ar-card-meta"><span class="ar-creator"><img class="ar-avatar px" src="${avatarOf(p)}" alt="" width="24" height="24"><span class="ar-creator-name">@${esc(p.creator.nickname)}</span></span></div>
+        <div class="ar-card-meta">${creatorLine(p)}</div>
         <button class="ar-key mustard" data-open="${esc(p.id)}">${icon('play', 17)}들어가기</button>
       </div></article>`).join('');
   app.innerHTML = shell(`
@@ -99,7 +99,7 @@ function packScreen(p: Pack, people = 4, review: Review | null = null) {
       <div class="w-pack-head">
         <div class="ar-title w-pack-title">${esc(p.name)}</div>
         <p class="ar-sub">${esc(p.tagline)}</p>
-        <div class="ar-card-meta"><span class="ar-creator"><img class="ar-avatar px" src="${avatarOf(p)}" alt="" width="24" height="24"><span class="ar-creator-name">@${esc(p.creator.nickname)}</span></span><span class="ar-tagpill">${esc(p.family)}</span><span class="ar-count">${peopleOf(p)}</span></div>
+        <div class="ar-card-meta">${creatorLine(p, !!review)}<span class="ar-tagpill">${esc(p.family)}</span><span class="ar-count">${peopleOf(p)}</span></div>
         <p class="w-intent">${esc(p.educationalIntent)}</p>
       </div>
       <div>
@@ -236,6 +236,7 @@ function reviewScreen(number: number, dormsId = '') {
 }
 window.addEventListener('popstate', route);
 online.init({ app, shell, go, route, setStop: fn => { stop?.(); stop = fn; } });
+initProfiles({ app, openPack: id => go(`g/${id}`) });   // 만든 사람 줄(단추)과 프로필 창
 
 Promise.all([loadAssets(), document.fonts.load('12px Galmuri11').catch(() => undefined)]).then(route, err => {
   app.innerHTML = `<main class="arcade-root w-root"><p class="w-empty">${esc(err instanceof Error ? err.message : '화면을 준비하지 못했어요.')} 새로 고침해 주세요.</p></main>`;

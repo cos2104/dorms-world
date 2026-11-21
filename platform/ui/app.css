@@ -192,3 +192,37 @@ body { word-break: keep-all; overflow-wrap: anywhere; }
 .w-review .w-nick { display: inline-block; max-width: 100%; }   /* '@' 와 닉네임이 줄 끝에서 갈라지지 않게. 한 덩어리로 다음 줄로 가고, 줄보다 긴 이름(40자)만 그 안에서 접힌다 */
 .w-review-moved { margin-top: .5rem; font-weight: 700; }
 .w-review-moved[hidden] { display: none; }
+
+/* ---------- 만든 사람 줄(단추)과 프로필 창 (2026-11-22) ----------
+   줄: 사진 + @닉네임이 한 단추. 눌리는 자리는 44px, 보이는 모양은 오락실 '크리에이터 칩'(.ar-creator) 그대로다.
+   창: 틀은 온라인 쪽 창(online.css 의 .w-dialog)을 그대로 쓰고 여기는 창 속 자리만 잡는다. */
+.w-root .w-creator { -webkit-appearance: none; appearance: none; display: inline-flex; align-items: center; gap: .5rem; min-width: 0; max-width: 100%; min-height: 44px; margin: 0; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: var(--ar-paper); font: inherit; text-align: left; text-shadow: inherit; cursor: pointer; }
+.w-root .w-creator .ar-creator-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.4; }
+.w-root .w-creator:focus-visible { outline: 2px solid var(--ar-amber); outline-offset: 2px; }
+.w-root .ar-avatar { display: block; }
+.w-root .ar-avatar:not(.px) { image-rendering: auto; }   /* 도름스 프로필 사진은 부드럽게, 도트 그림(.px)만 또렷하게 */
+
+.w-root .w-prof { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: .7rem; margin: .2rem 0 1.1rem; text-align: center; }
+.w-root .w-prof-photo { width: 96px; height: 96px; border: 2px solid #14285F; }
+.w-root .w-prof-id { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: .5rem; min-width: 0; max-width: 100%; }
+.w-root .w-prof-name { margin: 0; max-width: 100%; font-size: 1.35rem; line-height: 1.3; word-break: normal; overflow-wrap: anywhere; }   /* 띄어쓰기 없는 긴 닉네임: keep-all 이면 '@' 만 첫 줄에 남는다 */
+.w-root .w-prof-bio { margin: 0; max-width: 100%; font-family: "Noto Sans KR", system-ui, sans-serif; color: #14285F; overflow-wrap: anywhere; }
+.w-root .w-prof-tags { list-style: none; margin: 0; padding: 0; justify-content: center; max-width: 100%; }
+.w-root .w-prof-tags > li { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.w-root .w-prof-dorms { display: inline-flex; align-items: center; gap: .5rem; margin: 0; }
+.w-root .w-prof-games { list-style: none; margin: 0; padding: 0; max-height: min(13.5rem, 36dvh); }
+.w-root .w-prof-games .ar-row.w-prof-game { grid-template-columns: minmax(0, 1fr) fit-content(45%); width: 100%; min-height: 48px; text-align: left; cursor: pointer; font: inherit; }
+.w-root .w-prof-games .ar-row.w-prof-game[aria-current=page] { background: rgba(57,120,206,0.12); border-color: var(--ar-line); }
+.w-root .w-prof-games .ar-label { white-space: normal; overflow: visible; line-height: 1.4; }   /* 게임 이름은 자르지 않고 줄을 바꾼다 */
+.w-root .w-prof-games .ar-tagpill { justify-self: end; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.w-root .w-prof-games .ar-row:focus-visible { outline: 2px solid var(--ar-amber); outline-offset: -2px; }
+.w-root .w-prof-none { margin: 0; font-family: "Noto Sans KR", system-ui, sans-serif; font-size: .9rem; line-height: 1.6; color: var(--ar-dim); }
+.w-root.w-dialog .lab-actions > a.ar-key { line-height: 1.3; }
+/* 낮은 화면(휴대폰 가로): 사진과 글을 옆으로 나란히, 목록은 낮게 */
+@media (max-height: 520px) {
+  .w-root .w-prof { grid-template-columns: 72px minmax(0, 1fr); justify-items: start; align-items: center; gap: .9rem; margin-bottom: .7rem; text-align: left; }
+  .w-root .w-prof-photo { width: 72px; height: 72px; }
+  .w-root .w-prof-id { justify-items: start; gap: .35rem; }
+  .w-root .w-prof-tags { justify-content: flex-start; }
+  .w-root .w-prof-games { max-height: 7rem; }
+}
