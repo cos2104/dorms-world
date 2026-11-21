@@ -16,6 +16,7 @@ import { esc } from '../platform/text';
 import { makeScreen } from './make';
 import { headOf, loadDormsReview, loadReview, type Review } from './review';
 import * as online from './online';
+import { mountRanks } from './ranks';
 
 const BASE = import.meta.env.BASE_URL;
 const app = document.getElementById('app')!;
@@ -131,6 +132,7 @@ function packScreen(p: Pack, people = 4, review: Review | null = null) {
   if (designBtn && designEl) designBtn.onclick = () => { designEl.hidden = !designEl.hidden; designBtn.setAttribute('aria-expanded', String(!designEl.hidden)); designBtn.textContent = designEl.hidden ? '설계서 보기' : '설계서 접기'; };
   app.querySelector<HTMLButtonElement>('[data-back]')!.onclick = () => go('');
   if (!review) online.pack();   // 방 안이면: 연습 인원 대신 방 줄(살펴보는 중인 요청의 팩은 이 기기에만 있어 방에서 함께 열지 않는다)
+  if (!review) mountRanks(app, p);   // 순위 줄(도름스가 답할 때만. 살펴보는 중인 요청의 팩에는 순위가 없다)
 }
 
 // ---------- 게임 화면 ----------

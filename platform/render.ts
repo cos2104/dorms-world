@@ -78,7 +78,7 @@ export function cameraFor(w: World, me: number | null, prev?: Camera): Camera {
   return { x, y: sh - VIEW_H / scale, scale };
 }
 
-function drawStage(c: CanvasRenderingContext2D, w: World, now: number, me: number | null) {
+function drawStage(c: CanvasRenderingContext2D, w: World, now: number, me: number | null, names?: readonly string[]) {
   const s = w.stage;
   for (const b of s.bridges) {
     if (!bridgeSolid(w, b.ch, b.mode)) continue;
@@ -114,7 +114,7 @@ function drawStage(c: CanvasRenderingContext2D, w: World, now: number, me: numbe
   // 든 것은 머리 바로 위에, 번호표는 그 위로 올린다(번호표가 든 것을 가리지 않게)
   const lift = (p: Player) => (p.carry ? (p.carry.kind === 'box' ? 21 : 13) : 0);
   for (const p of order) if (p.carry) { const size = p.carry.kind === 'box' ? 18 : 10; drawItem(c, p.carry.kind, Math.round(p.x + p.w / 2 - size / 2), Math.round(p.y - size - 3), size, s.scales[p.carry.scale]?.skin[p.carry.kind]); }
-  for (const p of order) tag(c, p, p.i === me, lift(p));
+  for (const p of order) tag(c, p, p.i === me, lift(p), names?.[p.i]);
   if (!w.key.used) c.drawImage(spr('key'), Math.round(w.key.x), Math.round(w.key.y), 32, 18);
   if (me != null && w.players[me] && !w.players[me].inDoor) {
     const p = w.players[me];
@@ -276,11 +276,13 @@ function label(c: CanvasRenderingContext2D, text: string, x: number, y: number) 
   c.fillStyle = PALETTE.paper; c.fillText(text, Math.round(x), Math.round(y));
 }
 
-function tag(c: CanvasRenderingContext2D, p: Player, mine: boolean, lift = 0) {
+/** 머리 위 표: 보통은 차례 번호, 교사가 승인한 닉네임이 있으면 그 닉네임(남이 쓴 글자라 열 글자로 자르고 글자로만 그린다). */
+function tag(c: CanvasRenderingContext2D, p: Player, mine: boolean, lift = 0, name = '') {
   const x = Math.round(p.x + p.w / 2), y = Math.round(p.y - 8 - lift);
-  c.font = '700 10px Galmuri11, monospace'; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
-  const text = String(p.i + 1), wd = Math.ceil(c.measureText(text).width) + 6;
-  c.fillStyle = mine ? PALETTE.key : PALETTE.paper; c.fillRect(x - wd / 2, y - 10, wd, 12);
+  const text = name ? [...name].slice(0, 10).join('') : String(p.i + 1), big = name ? 2 : 0;
+  c.font = `700 ${10 + big}px Galmuri11, monospace`; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+  const wd = Math.ceil(c.measureText(text).width) + 6;
+  c.fillStyle = mine ? PALETTE.key : PALETTE.paper; c.fillRect(Math.round(x - wd / 2), y - 10 - big, wd, 12 + big + (name ? 1 : 0));
   c.fillStyle = PALETTE.navy; c.fillText(text, x, y);
 }
 
@@ -300,12 +302,12 @@ function bubble(c: CanvasRenderingContext2D, text: string, x: number, y: number)
   c.fillStyle = PALETTE.navy; c.fillText(text, Math.round(x), Math.round(y - 9));
 }
 
-export function render(c: CanvasRenderingContext2D, w: World, cam: Camera, now: number, me: number | null) {
+export function render(c: CanvasRenderingContext2D, w: World, cam: Camera, now: number, me: number | null, names?: readonly string[]) {
   c.setTransform(1, 0, 0, 1, 0, 0);
   c.imageSmoothingEnabled = false;
   c.drawImage(spr('bg'), 0, 0, VIEW_W, VIEW_H);
   c.setTransform(cam.scale, 0, 0, cam.scale, -Math.round(cam.x * cam.scale), -Math.round(cam.y * cam.scale));
-  drawStage(c, w, now, me);
+  drawStage(c, w, now, me, names);
   c.setTransform(1, 0, 0, 1, 0, 0);
 }
 

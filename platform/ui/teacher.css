@@ -1,0 +1,96 @@
+/* 선생님 방: 선생님 화면(방 코드 · QR · 닉네임 신청 · 명단), 닉네임 창, 순위 줄. 부품 모양은 arcade.css · world.css 그대로 쓰고 여기는 자리만 잡는다.
+   단추 약속(app.css 와 같다): 화면마다 주 행동 하나만 노랑(.mustard), 나머지는 테두리 단추(.ghost), 고르기는 .ghost + aria-pressed. */
+:root { --teach-w: 340px; }
+
+/* ---------- 처음 화면 · 방 만들기 창의 선생님 줄 ---------- */
+.w-root .w-teacher-line { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .6rem; margin: .7rem 0 0; font-family: "Noto Sans KR", system-ui, sans-serif; font-size: .9rem; line-height: 1.6; color: #14285F; }
+.w-root .w-teacher-line > span { min-width: 0; }
+.w-root .w-teacher-tag { flex: none; }
+.w-root .w-teacher-nick { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: "Galmuri11", "Noto Sans KR", monospace; color: #0E1C45; }
+.w-root .w-teacher-login { display: inline-block; padding: .25rem .1rem; color: #14285F; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+.w-root .w-teacher-login:focus-visible { outline: 2px solid #14285F; outline-offset: 2px; border-radius: 4px; }
+/* 선생님의 방 만들기 창: 넓은 화면에서는 선생님 칸과 방 칸을 나란히(낮은 노트북 화면에서도 '방 만들기' 단추까지 한 화면에) */
+@media (min-width: 860px) {
+  .w-root.w-dialog:has(.w-make-teacher) .lab-modal { width: min(100%, 800px); max-width: none; }
+  .w-make-cols:has(.w-make-teacher) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1.6rem; align-items: start; }
+}
+.w-root.w-dialog .w-make-teacher .ar-view-tabs, .w-root.w-dialog .w-make-room .ar-view-tabs { margin-bottom: .45rem; }
+.w-root .w-teacher-inline { margin: 0 0 .9rem; }
+.w-root.w-dialog .ar-input.w-titleinput, .w-root.w-dialog .ar-input.w-nickinput { min-height: 48px; margin-bottom: .45rem; }
+.w-root .w-title-note, .w-root .w-nick-how { min-height: 0; }
+.w-root.w-dialog .w-make-note:empty { display: none; }          /* 알릴 것이 없을 때는 빈 줄을 두지 않는다 */
+.w-root.w-dialog .w-make-note { margin: 0 0 .2rem; }
+
+/* ---------- 방 제목(남이 쓴 글: 길어도 칸 안에서 접힌다) ---------- */
+.w-root .w-room-title { margin: 0 0 .6rem; font-family: "Galmuri11", "Noto Sans KR", monospace; font-weight: 700; font-size: 1.2rem; line-height: 1.4; color: #0E1C45; overflow-wrap: anywhere; }
+.w-root .w-room-title[hidden] { display: none; }
+
+/* ---------- 닉네임 단추가 들어가는 자리 ---------- */
+.w-nick-slot { display: contents; }
+.w-nick-slot[hidden] { display: none; }
+.w-root .w-wait-actions .w-nick-slot > .ar-key { min-height: 52px; min-width: 0; white-space: nowrap; }
+
+/* ---------- 선생님 화면 ---------- */
+.w-root.w-teach { position: fixed; top: 0; right: 0; bottom: 0; z-index: 6; display: none; flex-direction: column; gap: .55rem; width: var(--teach-w); min-height: 0; padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) 14px; overflow-y: auto; overscroll-behavior: contain; background: #EEF5FF; color: #14285F; border-left: 2px solid #14285F; }
+.w-teach-head { display: flex; align-items: center; gap: .5rem; min-height: 44px; }
+.w-root.w-teach .w-x { flex: none; width: 44px; height: 44px; padding: 0; margin-left: auto; }
+.w-root.w-teach .w-room-title { margin: 0; }
+.w-teach-code { text-align: center; }
+.w-root.w-teach .w-bigcode { margin: 0 0 .5rem; font-size: 3rem; }
+.w-root.w-teach .w-qr { width: 208px; max-width: 100%; margin-bottom: .5rem; }
+.w-root .w-teach-how { margin: 0; font-family: "Noto Sans KR", system-ui, sans-serif; font-size: .85rem; line-height: 1.6; }
+.w-root.w-teach .w-teach-k { margin: .5rem 0 0; }
+.w-root.w-teach .lab-roster { max-height: none; overflow: visible; padding-right: 0; }
+.w-root .w-asks-none { font-size: .85rem; }
+/* 닉네임 신청 한 건: 윗줄에 색 · 닉네임 · 누구인지, 아랫줄에 승인 · 반려 단추 둘(같은 폭) */
+.w-root.w-teach .w-asks .ar-row.w-ask { grid-template-columns: 30px minmax(0, 1fr); gap: .45rem .6rem; align-items: center; cursor: default; padding-block: .5rem; }
+.w-root .w-ask .w-ask-text { display: grid; gap: .1rem; min-width: 0; white-space: normal; overflow: visible; }
+.w-ask-nick { font-size: 1.05rem; line-height: 1.4; color: #0E1C45; overflow-wrap: anywhere; }
+.w-ask-who { font-family: "Noto Sans KR", system-ui, sans-serif; font-weight: 400; font-size: .8rem; line-height: 1.5; color: var(--ar-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w-ask-keys { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
+.w-root .w-ask-keys > .ar-key { min-height: 44px; min-width: 0; padding: .3rem .5rem; white-space: nowrap; }
+/* 명단 한 줄: 색 · 이름(윗줄)과 지금 하는 일(아랫줄) · 닉네임 지우기(없으면 같은 폭 빈칸) */
+.w-root.w-teach .w-teach-list .ar-row.w-teach-row { grid-template-columns: 30px minmax(0, 1fr) 40px; gap: .6rem; align-items: center; min-height: 56px; cursor: default; }
+.w-root .w-unname { width: 40px; min-width: 40px; height: 40px; padding: 0; justify-content: center; gap: 0; }
+.w-unname-gap { display: block; width: 40px; height: 40px; }
+/* '우리 반' 단추(좁은 화면에서 선생님 화면을 연다)와 기다리는 신청 수 */
+.w-root .w-teach-btn { position: relative; }
+.w-teach-badge { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 999px; background: #14285F; color: #F4F7FF; font-family: "VT323", "Galmuri11", monospace; font-weight: 400; font-size: 1rem; line-height: 1; }
+/* 넓은 화면: 게임 화면 옆에 늘 붙어 있다(게임 화면 + 방 코드와 QR + 명단 + 닉네임 신청 줄이 한 화면) */
+@media (min-width: 1100px) {
+  .w-root.w-teach { display: flex; }
+  .w-root.w-teach .w-x, .w-root .w-teach-btn { display: none; }
+  body.w-teaching #app { margin-right: var(--teach-w); }
+  body.w-teaching .w-stagebox { width: min(calc(100vw - var(--teach-w)), calc(100dvh * 16 / 9)); }
+  body.w-teaching .w-end { right: var(--teach-w); }
+}
+/* 좁은 화면: '우리 반' 단추를 누르면 화면 전체로 뜬다 */
+@media (max-width: 1099.98px) {
+  .w-root.w-teach.open { display: flex; left: 0; width: auto; z-index: 25; border-left: 0; }
+  .w-root.w-teach.open > * { width: min(100%, 30rem); margin-inline: auto; }
+}
+
+/* ---------- 끝 창의 순위 줄 ---------- */
+.w-root .w-rankline { margin: .5rem 0 0; font-family: "Noto Sans KR", system-ui, sans-serif; font-weight: 700; color: #14285F; }
+.w-root .w-rankline[hidden] { display: none; }
+
+/* ---------- 팩 화면의 순위 줄 ---------- */
+.w-root .w-ranks { margin-top: 1.2rem; }
+.w-root .w-rank-tabs { display: flex; flex-wrap: wrap; gap: .45rem; margin-bottom: .5rem; overflow: visible; }
+.w-root .w-rank-tabs > .ar-key { min-width: 52px; min-height: 44px; padding: .3rem .6rem; justify-content: center; }
+.w-root .w-rank-say { margin: 0 0 .5rem; font-family: "Noto Sans KR", system-ui, sans-serif; font-size: .88rem; }
+.w-root .w-rank-list .ar-row.w-rank { grid-template-columns: 2.6em minmax(0, 1fr) 4.4em 4.8em; gap: .5rem; align-items: center; min-height: 52px; cursor: default; }
+.w-rank-no { text-align: center; }
+.w-rank-text { display: grid; min-width: 0; }
+.w-rank-title, .w-rank-by { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w-rank-title { color: #0E1C45; }
+.w-rank-by { font-family: "Noto Sans KR", system-ui, sans-serif; font-size: .8rem; line-height: 1.5; color: var(--ar-dim); }
+.w-root .w-rank-time { font-size: 1.3rem; text-align: right; white-space: nowrap; color: #0E1C45; }
+.w-root .w-rank-none { margin: 0; }
+
+/* 낮은 화면(휴대폰 가로): 닉네임 창이 화면 안에 다 들어오게 빈 안내 줄과 여백을 줄인다 */
+@media (max-height: 520px) {
+  .w-root.w-dialog .w-nick-note:empty { display: none; }
+  .w-root.w-dialog .w-nick-how { margin-bottom: .5rem; }
+  .w-root.w-dialog:has(#w-nick) .lab-actions { padding-top: .6rem; }
+}

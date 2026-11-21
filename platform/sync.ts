@@ -7,7 +7,7 @@
 import { MAX_BOXES, MAX_MARBLES, type Line } from './equation';
 import { colorFor } from './identity';
 import { MAX_SEATS } from './room-rules';
-import { NOTE_LIST, dividedNote, setPlayerCount, type Carry, type World } from './sim';
+import { NOTE_LIST, NO_PAD, dividedNote, setPlayerCount, type Carry, type Pad, type World } from './sim';
 import { T } from './stage';
 
 /** 방장이 요약을 보내는 간격(물리 걸음 수). 60 / 3 = 초당 20번. */
@@ -169,4 +169,42 @@ export function blend(w: World, track: Track, now: number, dt: number): boolean 
   const h = w.key.holder != null ? w.players[w.key.holder] : null;
   if (h && !w.key.used) { w.key.x = h.x + h.w / 2 - 16; w.key.y = h.y - 26; }
   return true;
+}
+
+// ---------- 손님의 조작: 보내는 쪽과 받는 쪽 ----------
+/** 조작은 바뀌면 바로 보낸다(초당 서른 번까지). 안 바뀌어도 1초마다 다시 보내고, 방장은 3.5초 넘게 소식이 없는 조작을 놓은 것으로 본다. */
+export const PAD_MIN_MS = 33, PAD_REPEAT_MS = 1000, PAD_STALE_MS = 3500;
+
+/**
+ * 손님: 내 조작을 방장에게 보낸다. 짧게 누른 확인도 빠지지 않게 모아 둔다.
+ * 되풀이 보내기는 1초에 한 번뿐이라(방 서버를 지나가는 글 수를 줄인다), 받는 방장이 바뀌면 again() 을 불러 바로 다시 보낸다.
+ */
+export function padSender(send: (p: Pad) => void) {
+  let at = -1e12, key = '', held = false;
+  const push = (p: Pad, now: number) => {
+    held ||= !!p.a;
+    if (now - at < PAD_MIN_MS) return;
+    const out: Pad = { m: p.m, j: p.j, a: held, jn: p.jn };
+    const k = `${out.m}${out.j ? 1 : 0}${held ? 1 : 0}${out.jn}`;
+    if (k !== key || now - at >= PAD_REPEAT_MS) { send(out); key = k; at = now; }
+    held = false;
+  };
+  /** 받는 쪽이 바뀌었다(방장이 바뀌었거나 다시 붙었다): 바뀐 것이 없어도 다음 번에 바로 보낸다. */
+  push.again = () => { key = ''; };
+  return push;
+}
+
+/** 방장: 손님들의 마지막 조작. 새 조작이 올 때까지 마지막 것을 그대로 이어 쓴다(누르고 있는 동안 글이 오지 않아도 계속 걷는다). */
+export class GuestPads {
+  private pads = new Map<number, { pad: Pad; at: number; tap: boolean }>();   // tap: 아직 걸음에 쓰이지 않은 짧은 확인 누름
+  set(seat: number, pad: Pad, now: number) { this.pads.set(seat, { pad, at: now, tap: !!pad.a || !!this.pads.get(seat)?.tap }); }
+  /** 이번 걸음에 쓸 조작. 한참(3.5초) 소식이 없으면 손을 뗀 것으로 본다(연결이 죽은 사람의 도름이가 혼자 걷지 않게). */
+  get(seat: number, now: number): Pad {
+    const g = this.pads.get(seat);
+    if (!g || now - g.at >= PAD_STALE_MS) return NO_PAD;
+    return g.tap && !g.pad.a ? { ...g.pad, a: true } : g.pad;
+  }
+  /** 걸음이 한 번 돌았다: 짧은 확인(누름과 뗌이 걸음 한 번 사이에 함께 온 것)도 한 걸음은 쓰였다. */
+  stepped() { for (const g of this.pads.values()) g.tap = false; }
+  clear() { this.pads.clear(); }
 }
