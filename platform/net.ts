@@ -3,7 +3,7 @@
  * 연결이 끊기면 몇 번 다시 붙어 보고, 그래도 안 되면 까닭을 알려 준다.
  * 받은 글은 모두 남이 보낸 것이라 모양을 검사하고 나서 넘긴다.
  */
-import { CLOSE, cleanPad, cleanRoomInfo, emptyRoom, MAX_SEATS, type PublicRoom, type RoomInfo, type View, type WirePad } from './room-rules';
+import { CLOSE, cleanNick, cleanPad, cleanRoomInfo, cleanTitle, emptyRoom, MAX_SEATS, RANK, readClassInfo, readNames, type ClassInfo, type NameList, type PublicRoom, type RoomInfo, type View, type WirePad, NOTICE } from './room-rules';
 import { validRoomCode } from './room-code';
 import { readWire, type Wire } from './sync';
 import type { Pad } from './sim';
@@ -11,6 +11,11 @@ import type { Pad } from './sim';
 export type Seat = { seat: number; view: View };
 /** 방에서 나오게 된 까닭. */
 export type Down = 'full' | 'none' | 'taken' | 'fast' | 'lost' | 'left';
+
+/** 내가 신청한 닉네임이 어떻게 됐는지: wait 선생님이 보는 중, ok 승인, no 반려, bad 쓸 수 없는 글, slow 너무 자주 보냄. */
+export type NickState = 'wait' | 'ok' | 'no' | 'bad' | 'slow';
+/** 순위에 올린 기록. rank 가 0 이면 올리지 못했다. */
+export type RankNews = { run: number; ms: number; rank: number; best: boolean };
 
 export type RoomEvents = {
   /** 방에 들어왔다(다시 붙었을 때도 온다). */
@@ -27,12 +32,21 @@ export type RoomEvents = {
   retry?(attempt: number): void;
   /** 방에서 나왔다(더는 다시 붙지 않는다). */
   down?(why: Down): void;
+  /** 교사 방 정보 · 승인된 닉네임 · (교사에게만) 승인을 기다리는 닉네임이 바뀌었다. */
+  klass?(link: RoomLink): void;
+  /** 내가 낸 출입증을 방 서버가 확인했다(true) 또는 받지 않았다(false: 서명 · 기한이 틀렸거나, 답이 없다). */
+  pass?(ok: boolean): void;
+  /** 내가 신청한 닉네임의 결과. */
+  nick?(state: NickState, nick: string): void;
+  /** 순위에 올린 기록의 등수가 왔다. */
+  rank?(news: RankNews): void;
 };
 
-export type JoinOptions = { create?: boolean; view?: View | 'auto'; pub?: boolean; big?: boolean; id?: string; retries?: number; socket?: typeof WebSocket };
+/** pass 를 주면 들어올 때마다(다시 붙을 때도) 출입증을 낸다. title · rank 는 방을 만들 때만 쓰인다. */
+export type JoinOptions = { create?: boolean; view?: View | 'auto'; pub?: boolean; big?: boolean; id?: string; retries?: number; socket?: typeof WebSocket; pass?: string; title?: string; rank?: boolean; agree?: boolean };
 
 const RETRY_MS = [400, 900, 1800, 3500, 5000];
-const QUIET_MS = 25_000, PING_MS = 10_000, HB_MS = 5_000;
+const QUIET_MS = 25_000, PING_MS = 10_000, HB_MS = 5_000, PASS_WAIT_MS = 5_000;
 
 export const wsBase = (base: string) => base.replace(/\/+$/, '').replace(/^http/, 'ws');
 
@@ -50,6 +64,17 @@ export class RoomLink {
   private heard = 0;
   private wasHost = false;
   private remake = false;
+  /** 교사 방이면 그 정보(방 제목 · 순위에 올리는지 · 교사 자리). 보통 방은 null. */
+  cls: ClassInfo | null = null;
+  /** 교사가 승인한 닉네임(자리 번호 → 닉네임). */
+  names = new Map<number, string>();
+  /** 교사에게만: 승인을 기다리는 닉네임 [[자리 번호, 닉네임]]. */
+  asks: NameList = [];
+  /** 이 연결이 교사로 확인됐다. */
+  teacher = false;
+  /** 내가 신청해 두고 기다리는 닉네임. */
+  myAsk = '';
+  private passTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private base: string, readonly code: string, private opts: JoinOptions, private ev: RoomEvents) { this.connect(!!opts.create); }
 
@@ -89,7 +114,9 @@ export class RoomLink {
       const again = this.tries > 0 || this.open;
       this.room = this.remake ? this.room : room;
       this.open = true; this.tries = 0; this.wasHost = this.isHost;
+      this.readClass(m); this.teacher = false; this.asks = []; this.myAsk = this.cls ? cleanNick(m.ask) : '';
       this.beatStart();
+      this.sendPass();
       if (this.remake) { this.remake = false; if (this.isHost) this.setRoom(this.room); }   // 혼자 있던 방을 다시 세웠다: 고르던 스테이지를 되살린다
       if (again) this.ev.retry?.(0);
       this.ev.hello?.(this);
@@ -110,7 +137,43 @@ export class RoomLink {
       if (this.isHost) return;
       const wire = readWire(m.d);
       if (wire) this.ev.snap?.(wire);
+    } else if (m.t === 'class') {
+      if (!this.open) return;
+      this.readClass(m);
+      this.ev.klass?.(this);
+    } else if (m.t === 'asks') {
+      if (!this.open || !this.teacher) return;
+      this.asks = readNames(m.list);
+      this.ev.klass?.(this);
+    } else if (m.t === 'pass') {
+      if (!this.open || !this.opts.pass) return;
+      if (this.passTimer) { clearTimeout(this.passTimer); this.passTimer = null; }
+      this.teacher = m.ok === 1;
+      this.ev.pass?.(this.teacher);
+    } else if (m.t === 'me') {
+      const st = m.st, v = cleanNick(m.v);
+      if (!this.open || (st !== 'wait' && st !== 'ok' && st !== 'no' && st !== 'bad' && st !== 'slow')) return;
+      if (st === 'wait') this.myAsk = v; else if (st === 'ok' || st === 'no') this.myAsk = '';
+      this.ev.nick?.(st, v);
+    } else if (m.t === 'rank') {
+      const ok = (v: unknown, lo: number, hi: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
+      if (!this.open || !ok(m.r, 0, 1e9) || !ok(m.ms, RANK.min, RANK.max) || !ok(m.rank, 0, 1e6)) return;
+      this.ev.rank?.({ run: m.r, ms: m.ms, rank: m.rank, best: m.best === 1 });
     }
+  }
+
+  private readClass(m: Record<string, unknown>) {
+    this.cls = readClassInfo(m.cls);
+    this.names = new Map(this.cls ? readNames(m.names) : []);
+    if (!this.cls) { this.asks = []; this.myAsk = ''; }
+  }
+  /** 출입증을 낸다(들어올 때마다). 답이 한참 없으면 받지 않은 것으로 친다(교사 방을 모르는 옛 방 서버). */
+  private sendPass() {
+    const o = this.opts;
+    if (!o.pass) return;
+    this.raw(JSON.stringify({ t: 'pass', v: o.pass, title: cleanTitle(o.title), rank: o.rank ? 1 : 0, agree: o.agree ? NOTICE : 0 }));
+    if (this.passTimer) clearTimeout(this.passTimer);
+    this.passTimer = setTimeout(() => { this.passTimer = null; if (!this.done && this.open && !this.teacher) this.ev.pass?.(false); }, PASS_WAIT_MS);
   }
 
   private readSeats(m: Record<string, unknown>) {
@@ -173,6 +236,7 @@ export class RoomLink {
   private stop() {
     this.done = true; this.open = false;
     for (const t of this.timers) clearTimeout(t);
+    if (this.passTimer) { clearTimeout(this.passTimer); this.passTimer = null; }
     if (this.beat) { clearInterval(this.beat); this.beat = null; }
     const ws = this.ws; this.ws = null;
     try { ws?.close(1000); } catch { /* 이미 닫힘 */ }
@@ -190,6 +254,14 @@ export class RoomLink {
   setView(v: View) { if (this.isHost) return; this.opts.view = v; const s = this.seats.find(x => x.seat === this.me); if (s) s.view = v; this.raw(JSON.stringify({ t: 'view', v })); }
   /** 방장: 화면을 내려 두게 됐다. 게임 화면을 보는 다음 사람에게 방장을 넘긴다(없으면 그대로). */
   yieldHost() { if (this.isHost) this.raw('{"t":"yield"}'); }
+  /** 닉네임을 신청한다(교사 방에서만. 교사가 승인해야 보인다). */
+  askName(nick: string) { const v = cleanNick(nick); if (v && this.cls) this.raw(JSON.stringify({ t: 'name', v })); return !!v; }
+  /** 교사: 그 자리의 닉네임을 승인하거나(yes) 반려한다. nick 은 내가 본 그 닉네임. */
+  judge(seat: number, yes: boolean, nick: string) { if (this.teacher) this.raw(JSON.stringify({ t: 'ok', s: seat, y: yes ? 1 : 0, v: nick })); }
+  /** 방장: 스테이지를 다 함께 깼다(내가 잰 시간, 밀리초). 교사 방이고 순위에 올리기가 켜져 있을 때만 방 서버가 받는다. 순위에 적히는 시간은 방 서버가 잰 값이다. */
+  sendWon(ms: number) { if (this.isHost && this.cls?.rank) this.raw(JSON.stringify({ t: 'won', r: this.room.run, ms: Math.round(ms) })); }
+  /** 그 자리에 보일 닉네임(없으면 빈 글). */
+  nickOf(seat: number) { return this.names.get(seat) ?? ''; }
   /** 방에서 나간다. */
   leave() { if (this.done) return; this.stop(); this.ev.down?.('left'); }
 }

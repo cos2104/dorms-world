@@ -8,21 +8,26 @@
  *
  * 물리는 방장 기기만 돌린다. 손님은 조작만 보내고 방장이 보내는 세계 요약을 받아 그린다(platform/sync.ts).
  * 방 서버 주소(VITE_ROOM_URL)가 비어 있으면 이 파일은 화면에 아무것도 그리지 않는다.
+ *
+ * 교사 방: 도름스에 로그인한 선생님(주소의 #pass 로 받은 출입증)이 연 방. 방 제목, 닉네임 신청과 승인, 순위에 올리기가 있다.
+ * 선생님 화면은 게임 화면 옆에 방 코드 · QR · 명단 · 닉네임 신청 줄을 함께 둔다. 학생끼리 연 방에는 이 가운데 아무것도 없다.
+ * 다른 기기가 보낸 글자를 그리는 것은 선생님이 정한 방 제목과 선생님이 승인한 닉네임뿐이다(둘 다 esc 를 거치거나 글자로만 넣는다).
  */
 import '../platform/ui/online.css';
+import '../platform/ui/teacher.css';
 import qrcode from 'qrcode-generator';
 import { icon } from '../platform/icons';
 import { colorFor, swatchFor } from '../platform/identity';
 import { PadInput } from '../platform/input';
 import { VIEW_H, VIEW_W } from '../platform/look';
-import { joinRoom, listPublic, type Down, type RoomLink } from '../platform/net';
+import { joinRoom, listPublic, type Down, type NickState, type RankNews, type RoomLink } from '../platform/net';
 import { findPack, type Pack } from '../platform/packs';
 import { cameraFor, nearText, render, type Camera } from '../platform/render';
 import { cleanRoomCode, newRoomCode, validRoomCode } from '../platform/room-code';
-import { MAX_SEATS, type PublicRoom, type RoomInfo } from '../platform/room-rules';
-import { createWorld, removePlayer, setPlayerCount, step, NO_PAD, type Pad, type World } from '../platform/sim';
-import { SNAP_EVERY, applyWire, blend, newTrack, pushWire, toWire, wireSeats, type Track, type Wire } from '../platform/sync';
-import { esc } from '../platform/text';
+import { MAX_SEATS, NOTICE, NICK_MAX, TITLE_MAX, cleanNick, cleanTitle, readPass, type PassClaims, type PublicRoom, type RoomInfo } from '../platform/room-rules';
+import { createWorld, removePlayer, setPlayerCount, step, type Pad, type World } from '../platform/sim';
+import { GuestPads, SNAP_EVERY, applyWire, blend, newTrack, padSender, pushWire, toWire, wireSeats, type Track, type Wire } from '../platform/sync';
+import { esc, mmss } from '../platform/text';
 
 /** main.ts 가 빌려주는 것들. */
 export type Host = {
@@ -53,6 +58,7 @@ let role: 'none' | 'guest' | 'host' = 'none';
 
 export function init(h: Host) {
   host = h;
+  takePass();                           // 주소에 붙어 온 출입증은 방 서버 주소가 없어도 주소에서 지운다
   if (!available()) return;
   // 방장이 화면을 내려 두면(다른 앱으로 감) 게임이 멈춘다. 게임 화면을 보고 있는 다음 사람에게 방장을 넘긴다.
   document.addEventListener('visibilitychange', () => { if (document.hidden && game && link?.isHost) link.yieldHost(); });
@@ -63,6 +69,41 @@ export function init(h: Host) {
 }
 
 export const inRoom = () => !!link;
+
+// ---------- 선생님 출입증 ----------
+/**
+ * 도름스(dorms.school/world)가 로그인한 선생님에게 주소 끝 #pass=… 로 건네는 출입증.
+ * 받자마자 주소에서 지우고 이 창의 세션 저장소에만 둔다. 가운데 적힌 닉네임은 화면에 보이기만 하고, 진짜 확인은 방 서버가 서명으로 한다.
+ */
+const PASS_KEY = 'dorms-world.pass';
+let passMem = '';
+function takePass() {
+  const m = /(?:^#|&)pass=([^&]*)/.exec(location.hash);
+  if (!m) return;
+  let v = '';
+  try { v = decodeURIComponent(m[1]); } catch { /* 망가진 값은 버린다 */ }
+  history.replaceState(history.state, '', location.pathname + location.search);   // 주소 기록에 남지 않게
+  if (!readPass(v, Date.now() / 1000)) return;
+  passMem = v;
+  try { sessionStorage.setItem(PASS_KEY, v); } catch { /* 저장이 막힌 기기는 이 화면이 떠 있는 동안만 */ }
+}
+/** 지금 쓸 수 있는 출입증. 기한이 지났으면 버린다. */
+function myPass(): { pass: string; claims: PassClaims } | null {
+  let v = passMem;
+  if (!v) { try { v = sessionStorage.getItem(PASS_KEY) ?? ''; } catch { /* 저장이 막힌 기기 */ } }
+  const claims = v ? readPass(v, Date.now() / 1000) : null;
+  if (!claims) { passMem = ''; if (v) { try { sessionStorage.removeItem(PASS_KEY); } catch { /* 무시 */ } } return null; }
+  passMem = v;
+  return { pass: v, claims };
+}
+const LOGIN_URL = 'https://dorms.school/login?next=/world';
+// 선생님 방 안내에 동의했는지: 출입증에 적혀 있거나(도름스에 남은 기록), 이 기기에서 방금 동의했거나
+const NOTICE_KEY = 'dorms-world.notice';
+function noticeAgreed(claims: PassClaims) {
+  if (claims.c >= NOTICE) return true;
+  try { return localStorage.getItem(NOTICE_KEY) === `${claims.u}:${NOTICE}`; } catch { return false; }
+}
+function rememberNotice(claims: PassClaims) { try { localStorage.setItem(NOTICE_KEY, `${claims.u}:${NOTICE}`); } catch { /* 저장이 막힌 기기는 다음에 다시 묻는다 */ } }
 /** 방에 있는 동안 주소 뒤에 붙는 값. */
 export const query = () => (link ? `?room=${link.code}` : '');
 
@@ -96,8 +137,8 @@ const WHY: Record<Down, string> = {
 };
 
 // ---------- 방에 들어가고 나오기 ----------
-function enter(code: string, o: { create?: boolean; pub?: boolean; big?: boolean } = {}) {
-  joinIn = false; role = 'none';
+function enter(code: string, o: { create?: boolean; pub?: boolean; big?: boolean; title?: string; rank?: boolean } = {}) {
+  joinIn = false; role = 'none'; teachOpen = false; askCount = 0;
   /** 방장인지 손님인지가 바뀌었는지 본다. 손님으로 있다가 방장이 됐으면 true. */
   const turned = (l: RoomLink) => {
     const now = l.isHost ? 'host' : 'guest', promoted = role === 'guest' && now === 'host';
@@ -111,21 +152,50 @@ function enter(code: string, o: { create?: boolean; pub?: boolean; big?: boolean
     if (l.isHost) reconcile();
     if (promoted) toast('앞 방장이 나가서 이제 내가 방장이에요.');
     refresh();
+    paintTeach();
   };
-  const mine = joinRoom(ROOM_URL, code, { ...o, view: 'auto', id: tabId() }, {
-    hello: l => { if (l !== link) return; remade = 0; toast(''); changed(l); if (pendingInvite && l.isHost) { pendingInvite = false; inviteDialog(true); } },
+  /** 교사 방 정보 · 닉네임이 바뀌었다: 그것이 보이는 곳을 모두 다시 그린다. */
+  const classChanged = (l: RoomLink) => {
+    if (l !== link) return;
+    if (l.teacher && l.asks.length > askCount && !teachWide() && !teachOpen) toast('닉네임 신청이 왔어요. 우리 반을 눌러 확인해 주세요.');
+    askCount = l.asks.length;
+    if (host.app.querySelector('.w-strip')) mountStrip();
+    refresh();
+    paintTeach();
+  };
+  // 출입증이 있으면 들어올 때마다 낸다: 내가 연 방이면 선생님 방이 되고, 내 선생님 방에 다시 들어온 것이면 선생님 화면이 돌아온다
+  const teacherNow = myPass();
+  const mine = joinRoom(ROOM_URL, code, { ...o, view: 'auto', id: tabId(), pass: teacherNow?.pass, agree: !!teacherNow && noticeAgreed(teacherNow.claims) }, {
+    hello: l => {
+      if (l !== link) return;
+      remade = 0; toast(''); changed(l);
+      if (pendingInvite && l.isHost) { pendingInvite = false; inviteDialog(true); }
+      // 새로 고쳐 들어왔으면 승인받았던 닉네임을 다시 신청한다(닉네임은 연결에 붙어 있어 새 연결에는 없다)
+      const kept = keptNick(l.code);
+      if (l.cls && kept && !l.nickOf(l.me) && !l.myAsk) l.askName(kept);
+    },
     who: changed,
+    klass: classChanged,
+    pass: ok => {
+      if (mine !== link) return;
+      if (!ok && o.create) toast('선생님 확인을 하지 못해 보통 방으로 열었어요. 도름스에 다시 로그인한 뒤 방을 새로 만들어 주세요.', 9000);
+      classChanged(mine);
+    },
+    nick: nickNews,
+    rank: news => { lastRank = news; game?.onRank(); },
     room: l => { if (l === link) refresh(); },
     pad: (seat, pad) => game?.onPad(seat, pad),
     snap: wire => game?.onSnap(wire),
     retry: n => { if (mine === link) toast(n ? '연결이 끊겼어요. 다시 잇고 있어요.' : '', 0); },
     down: why => {
       if (mine !== link) return;
-      link = null; toast('');
+      link = null; toast(''); paintTeach();
       if (why === 'taken' && o.create && remade++ < 3) { enter(newRoomCode(), o); return; }   // 방 코드가 겹쳤다: 새로 뽑는다
       pendingInvite = false; closeDialog();
       // 한 번도 붙지 못했으면 '나왔어요'가 아니라 '못 했어요'로 알린다
-      notice = why === 'lost' && mine.me < 0 ? (o.create ? '방을 만들지 못했어요. 연결을 확인하고 다시 해 주세요.' : '방에 들어가지 못했어요. 연결을 확인하고 다시 해 주세요.') : WHY[why];
+      notice = why === 'lost' && mine.me < 0 ? (o.create ? '방을 만들지 못했어요. 연결을 확인하고 다시 해 주세요.' : '방에 들어가지 못했어요. 연결을 확인하고 다시 해 주세요.')
+        : why === 'fast' && mine.me < 0 ? (o.create ? '방을 너무 자주 만들었어요. 1분쯤 뒤에 다시 해 주세요.' : '지금은 방에 들어갈 수 없어요. 1분쯤 뒤에 다시 해 주세요.')   // 같은 인터넷 주소에서 방을 잇달아 만들었거나 틀린 방 코드가 너무 많이 들어왔다
+        : WHY[why];
       shown = '';
       history.replaceState(null, '', location.pathname);   // 주소에서 방 코드를 뗀다
       host.route();
@@ -137,7 +207,7 @@ function enter(code: string, o: { create?: boolean; pub?: boolean; big?: boolean
 function leaveRoom() {
   const l = link; if (!l) return;
   link = null; l.leave();                                 // 내가 나간 것이라 안내 글은 없다
-  toast(''); shown = ''; notice = '';
+  toast(''); shown = ''; notice = ''; paintTeach(); closeDialog();
   history.replaceState(null, '', location.pathname);
   host.go('');
 }
@@ -149,7 +219,7 @@ function leaveRoom() {
 export function route(): boolean {
   if (!available()) return false;
   const raw = new URLSearchParams(location.search).get('room'), want = cleanRoomCode(raw ?? '');
-  if (link && want !== link.code) { const l = link; link = null; l.leave(); toast(''); }        // 뒤로 가기로 방 주소를 벗어났다
+  if (link && want !== link.code) { const l = link; link = null; l.leave(); toast(''); paintTeach(); }        // 뒤로 가기로 방 주소를 벗어났다
   if (!link && raw != null) {
     if (validRoomCode(want)) enter(want);
     else { notice = WHY.none; history.replaceState(null, '', location.pathname); }
@@ -226,6 +296,7 @@ export function home() {
       </div>
     </div>
     <p class="lab-note w-online-note" role="status">${esc(notice)}</p>
+    ${teacherLine()}
     <div class="w-public"><p class="ar-kicker w-kicker">공개 방</p><div class="lab-roster w-publist"><p class="w-public-none">공개 방을 찾고 있어요.</p></div></div>`;
   notice = '';
   at.before(el);
@@ -253,6 +324,14 @@ export function home() {
   host.setStop(() => { alive = false; clearInterval(timer); });
 }
 
+/** 처음 화면의 선생님 줄: 출입증이 있으면 누구로 들어왔는지, 없으면 도름스 로그인 안내. */
+function teacherLine() {
+  const t = myPass();
+  return t
+    ? `<p class="w-teacher-line"><span class="ar-count w-teacher-tag">선생님</span><b class="w-teacher-nick">@${esc(t.claims.n)}</b><span>방을 만들 때 방 제목과 순위에 올릴지를 정할 수 있어요.</span></p>`
+    : `<p class="w-teacher-line"><span>선생님은 도름스에 로그인한 뒤 dorms.school/world 에서 열어 주세요.</span> <a class="w-teacher-login" href="${LOGIN_URL}" target="_blank" rel="noopener noreferrer">도름스 로그인</a></p>`;
+}
+
 function pubRow(r: PublicRoom) {
   const p = findPack(r.pack), where = p && r.stage >= 0 && r.stage < p.stages.length ? `${p.name} ${String(r.stage + 1).padStart(2, '0')}` : '스테이지 고르는 중';
   return `<button class="ar-row w-pubrow" data-pub="${esc(r.code)}" aria-label="공개 방 ${esc(r.code)} 들어가기, ${esc(where)}, ${r.count}명"><span class="ar-count ar-mono w-pubcode">${esc(r.code)}</span><span class="ar-label">${esc(where)}</span><span class="ar-count w-people">${icon('users', 14)}<span><span class="lab-num">${r.count}</span>명</span></span></button>`;
@@ -275,8 +354,9 @@ function mountStrip() {
   bar.querySelector('.w-strip')?.remove();
   const el = document.createElement('div');
   el.className = 'w-strip';
-  el.innerHTML = `${roomTags()}<button class="ar-key ghost" data-invite aria-label="친구 부르기">${icon('plus', 17)}<span class="w-hide-s">친구 부르기</span></button><button class="ar-key ghost" data-leave aria-label="방 나가기">${icon('door', 17)}<span class="w-hide-s">방 나가기</span></button>`;
+  el.innerHTML = `${roomTags()}${teachButton()}<button class="ar-key ghost" data-invite aria-label="친구 부르기">${icon('plus', 17)}<span class="w-hide-s">친구 부르기</span></button><button class="ar-key ghost" data-leave aria-label="방 나가기">${icon('door', 17)}<span class="w-hide-s">방 나가기</span></button>`;
   bar.appendChild(el);
+  el.querySelector<HTMLButtonElement>('[data-teach]')?.addEventListener('click', openTeach);
   el.querySelector<HTMLButtonElement>('[data-invite]')!.onclick = e => inviteDialog(false, e.currentTarget as HTMLElement);
   el.querySelector<HTMLButtonElement>('[data-leave]')!.onclick = leaveRoom;
   shown = 'host';
@@ -327,16 +407,51 @@ function openDialog(label: string, badge: string, body: string, opener?: HTMLEle
 
 /** 방 만들기 창: 공개 여부와 방식을 고른다. */
 function createDialog(opener: HTMLElement) {
-  let pub = false, big = false;
-  const el = openDialog('방 만들기', 'ROOM', `
+  let pub = false, big = false, rank = false;
+  const teacher = myPass();
+  const ask = !!teacher && !noticeAgreed(teacher.claims);   // 선생님 방을 처음 여는 선생님께는 그 자리에서 알리고 동의를 받는다
+  // 선생님이 여는 방: 방 제목과 순위에 올릴지를 여기서 정한다(학생끼리 여는 방에는 이 칸이 없다)
+  const noticePart = ask ? `<div class="w-notice" role="group" aria-labelledby="w-notice-k">
+    <p class="ar-kicker w-kicker" id="w-notice-k">선생님 방을 열기 전에 확인해 주세요</p>
+    <ul class="w-notes w-notice-list">
+      <li>선생님 방을 열면 선생님의 도름스 회원 번호와 닉네임이 방을 이어 주는 서버(Cloudflare)로 전달돼요. 방이 닫히면 지워져요.</li>
+      <li>어느 게임을 어느 날 여셨는지가 도름스에 남아요. 게임을 만든 선생님께 몇 개 반에서 쓰였는지 알려 드리는 데만 쓰고, 누가 썼는지는 알리지 않아요.</li>
+      <li>순위에 올리면 방 제목, 걸린 시간, 인원, 선생님 닉네임이 누구에게나 보여요.</li>
+      <li>학생은 가입 없이 들어오고 학생 정보는 저장하지 않아요. 학생이 닉네임에 이름, 학번, 연락처 같은 개인정보를 적지 않게 살펴봐 주세요. 닉네임은 선생님이 승인해야 보여요.</li>
+    </ul>
+    <label class="w-agree"><input type="checkbox" id="w-agree"><span>확인했고 동의해요</span></label>
+    <p class="ar-sub w-pick-note w-agree-note">동의하지 않으면 선생님 기능(방 제목, 닉네임 승인, 순위) 없이 보통 방으로 열려요.</p></div>` : '';
+  const teacherPart = teacher ? `<div class="w-make-teacher">
+    <p class="w-teacher-line w-teacher-inline"><span class="ar-count w-teacher-tag">선생님</span><b class="w-teacher-nick">@${esc(teacher.claims.n)}</b><span>선생님 방으로 열려요. 학생이 닉네임을 신청하면 선생님이 승인해요.</span></p>
+    <label class="ar-kicker w-kicker" for="w-title">방 제목</label>
+    <input id="w-title" class="ar-input w-titleinput" maxlength="${TITLE_MAX}" autocomplete="off" spellcheck="false" placeholder="스무 글자까지. 비워 둘 수 있어요">
+    <p class="ar-sub w-pick-note w-title-note">방 제목에는 학생 이름을 넣지 마세요. 순위에 올리면 방 제목이 누구에게나 보여요.</p>
+    <p class="ar-kicker w-kicker" id="w-rank-k">순위에 올릴까요</p>
+    <div class="ar-view-tabs" role="group" aria-labelledby="w-rank-k"><button class="ar-key ghost" data-rank="0">올리지 않기</button><button class="ar-key ghost" data-rank="1">순위에 올리기</button></div>
+    <p class="ar-sub w-pick-note" data-rank-note></p></div>` : '';
+  const el = openDialog('방 만들기', 'ROOM', `${noticePart}<div class="w-make-cols">${teacherPart}<div class="w-make-room">
     <p class="ar-kicker w-kicker" id="w-pub-k">누가 들어올 수 있나요</p>
     <div class="ar-view-tabs" role="group" aria-labelledby="w-pub-k"><button class="ar-key ghost" data-pub="0" data-first>코드를 아는 친구만</button><button class="ar-key ghost" data-pub="1">누구나</button></div>
     <p class="ar-sub w-pick-note" data-pub-note></p>
     <p class="ar-kicker w-kicker" id="w-big-k">어떻게 함께 할까요</p>
     <div class="ar-view-tabs" role="group" aria-labelledby="w-big-k"><button class="ar-key ghost" data-big="0">각자 화면</button><button class="ar-key ghost" data-big="1">함께 보기</button></div>
-    <p class="ar-sub w-pick-note" data-big-note></p>
+    <p class="ar-sub w-pick-note" data-big-note></p></div></div>
+    <p class="lab-note w-make-note" role="status"></p>
     <div class="lab-actions"><button class="ar-key mustard" data-make>${icon('users', 17)}방 만들기</button></div>`, opener);
+  const titleEl = el.querySelector<HTMLInputElement>('#w-title'), makeNote = el.querySelector<HTMLElement>('.w-make-note')!;
+  const agreeEl = el.querySelector<HTMLInputElement>('#w-agree');
+  const asTeacher = () => !!teacher && (!ask || !!agreeEl?.checked);
+  // 동의하기 전에는 선생님 칸(방 제목, 순위)을 쓸 수 없다
+  const lock = () => { const off = !asTeacher(); el.querySelector('.w-make-teacher')?.classList.toggle('is-off', off); if (titleEl) titleEl.disabled = off; el.querySelectorAll<HTMLButtonElement>('[data-rank]').forEach(b => { b.disabled = off; }); if (off) rank = false; };
+  if (agreeEl) {
+    agreeEl.onchange = () => { lock(); paint(); };
+    // 안내가 먼저 보이게: 창을 맨 위로 두고 동의 칸에 초점을 둔다(긴 창에서 아래쪽 단추로 초점이 가면 안내가 화면 밖으로 밀린다)
+    requestAnimationFrame(() => { agreeEl.focus({ preventScroll: true }); const box = agreeEl.closest<HTMLElement>('.w-dialog'); if (box) box.scrollTop = 0; });
+  }
   const paint = () => {
+    el.querySelectorAll<HTMLElement>('[data-rank]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.rank === '1') === rank)));
+    const rankNote = el.querySelector('[data-rank-note]');
+    if (rankNote) rankNote.textContent = rank ? '스테이지를 다 함께 깨면 걸린 시간이 방 제목으로 순위에 올라가요.' : '기록을 순위에 올리지 않아요.';
     el.querySelectorAll<HTMLElement>('[data-pub]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.pub === '1') === pub)));
     el.querySelectorAll<HTMLElement>('[data-big]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.big === '1') === big)));
     el.querySelector('[data-pub-note]')!.textContent = pub ? '처음 화면의 공개 방 목록에 떠서 누구나 들어올 수 있어요.' : '방 코드나 QR 을 받은 친구만 들어와요.';
@@ -344,13 +459,19 @@ function createDialog(opener: HTMLElement) {
   };
   el.querySelectorAll<HTMLButtonElement>('[data-pub]').forEach(b => b.onclick = () => { pub = b.dataset.pub === '1'; paint(); });
   el.querySelectorAll<HTMLButtonElement>('[data-big]').forEach(b => b.onclick = () => { big = b.dataset.big === '1'; paint(); });
+  el.querySelectorAll<HTMLButtonElement>('[data-rank]').forEach(b => b.onclick = () => { rank = b.dataset.rank === '1'; makeNote.textContent = ''; paint(); });
+  if (titleEl) titleEl.oninput = () => { makeNote.textContent = ''; };
   el.querySelector<HTMLButtonElement>('[data-make]')!.onclick = e => {
+    const title = titleEl && asTeacher() ? cleanTitle(titleEl.value) : '';
+    if (asTeacher() && titleEl && titleEl.value.trim() && !title) { makeNote.textContent = '방 제목은 스무 글자까지 한 줄로 적어 주세요.'; titleEl.focus(); return; }
+    if (rank && !title) { makeNote.textContent = '순위에 올리려면 방 제목을 적어 주세요.'; titleEl?.focus(); return; }
     (e.currentTarget as HTMLButtonElement).disabled = true;
     pendingInvite = true; remade = 0;
-    enter(newRoomCode(), { create: true, pub, big });
+    if (teacher && ask && agreeEl?.checked) rememberNotice(teacher.claims);
+    enter(newRoomCode(), { create: true, pub, big, ...(asTeacher() ? { title, rank } : {}) });
     host.go(location.pathname.slice(BASE.length));       // 주소에 방 코드를 붙이고 화면에 방 줄을 단다
   };
-  paint();
+  lock(); paint();
 }
 
 const inviteUrl = () => `${(import.meta.env.VITE_PUBLIC_URL ?? '').trim().replace(/\/+$/, '') || location.origin}${BASE}?room=${link?.code ?? ''}`;
@@ -362,6 +483,114 @@ function qrSvg(text: string) {
   let d = '';
   for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) d += `M${c} ${r}h1v1h-1z`;
   return `<svg class="w-qr-svg" viewBox="${-pad} ${-pad} ${n + pad * 2} ${n + pad * 2}" shape-rendering="crispEdges" role="img" aria-label="방 주소가 담긴 QR"><rect x="${-pad}" y="${-pad}" width="${n + pad * 2}" height="${n + pad * 2}" fill="#F4F7FF"/><path d="${d}" fill="#14285F"/></svg>`;
+}
+
+let qrKept = ['', ''];
+/** 같은 주소의 QR 은 한 번만 만든다(선생님 화면은 명단이 바뀔 때마다 다시 그려진다). */
+function qrFor(url: string) { if (qrKept[0] !== url) qrKept = [url, qrSvg(url)]; return qrKept[1]; }
+
+// ---------- 닉네임(선생님 방에서만) ----------
+const NICK_KEY = 'dorms-world.nick';
+/** 이 방에서 승인받은 내 닉네임(새로 고친 뒤 다시 신청하는 데만 쓴다. 창을 닫으면 사라진다). */
+function keptNick(code: string) {
+  try { const o = JSON.parse(sessionStorage.getItem(NICK_KEY) ?? 'null') as { code?: unknown; v?: unknown } | null; return o && o.code === code ? cleanNick(o.v) : ''; } catch { return ''; }
+}
+function keepNick(code: string, v: string) { try { if (v) sessionStorage.setItem(NICK_KEY, JSON.stringify({ code, v })); else sessionStorage.removeItem(NICK_KEY); } catch { /* 저장이 막힌 기기 */ } }
+/** 그 자리의 이름: 선생님이 승인한 닉네임이 있으면 그것, 없으면 색 이름과 번호. n 은 도름이 차례(없으면 0). */
+function seatName(l: RoomLink, seat: number, n: number) { return l.nickOf(seat) || `${swatchFor(seat).name} 도름이${n ? ` ${n}` : ''}`; }
+/** 머리 위에 적을 글(도름이 차례대로): 승인된 닉네임, 선생님의 도름이는 '선생님', 그 밖에는 빈 글(번호가 보인다). */
+const headNames = (l: RoomLink) => (l.cls ? l.room.order.map(seat => l.nickOf(seat) || (l.cls!.teachers.includes(seat) ? '선생님' : '')) : undefined);
+/** 닉네임 단추: 선생님 방의 학생에게만 보인다. */
+function nickButton(small = true) {
+  const l = link;
+  if (!l?.cls || l.teacher) return '';
+  const label = l.myAsk ? '닉네임 확인 중' : l.nickOf(l.me) ? '닉네임 바꾸기' : '닉네임 정하기';
+  return `<button class="ar-key ghost" data-nick aria-label="${label}">${icon('pen', 17)}<span${small ? ' class="w-hide-s"' : ''}>${label}</span></button>`;
+}
+let nickNote: ((text: string) => void) | null = null;
+/** 닉네임 창. say 는 창을 열 때 보여 줄 글(반려됐을 때). */
+function nickDialog(say = '', opener?: HTMLElement) {
+  const l = link; if (!l?.cls) return;
+  const el = openDialog('닉네임 정하기', 'NAME', `
+    <p class="ar-sub w-pick-note w-nick-how">이름 대신 별명을 적어 주세요. 선생님이 확인하면 내 도름이 위에 보여요.</p>
+    <label class="ar-kicker w-kicker" for="w-nick">닉네임</label>
+    <input id="w-nick" class="ar-input w-nickinput" maxlength="${NICK_MAX}" autocomplete="off" spellcheck="false" enterkeyhint="send" placeholder="열 글자까지" data-first>
+    <p class="lab-note w-nick-note" role="status"></p>
+    <div class="lab-actions"><button class="ar-key mustard" data-send>${icon('check', 17)}선생님께 보내기</button></div>`, opener);
+  const input = el.querySelector<HTMLInputElement>('#w-nick')!, note = el.querySelector<HTMLElement>('.w-nick-note')!, btn = el.querySelector<HTMLButtonElement>('[data-send]')!;
+  note.textContent = say;
+  const send = () => {
+    const v = cleanNick(input.value);
+    if (!v) { note.textContent = '닉네임은 한 글자부터 열 글자까지 한 줄로 적어 주세요.'; input.focus(); return; }
+    if (!link?.askName(v)) return;
+    btn.disabled = true; note.textContent = '보내고 있어요.';
+    window.setTimeout(() => { if (btn.isConnected && btn.disabled) { btn.disabled = false; note.textContent = '보내지 못했어요. 다시 보내 주세요.'; } }, 4000);
+  };
+  input.oninput = () => { note.textContent = ''; };
+  input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); send(); } };
+  btn.onclick = send;
+  nickNote = text => { if (!note.isConnected) return; btn.disabled = false; note.textContent = text; input.focus(); };
+}
+/** 방 서버가 알려 준 내 닉네임 소식. */
+function nickNews(state: NickState, v: string) {
+  const l = link; if (!l) return;
+  const open = !!dialog?.el.querySelector('#w-nick');
+  if (state === 'wait') { if (open) closeDialog(); toast('선생님이 닉네임을 보고 있어요.'); }
+  else if (state === 'ok') { keepNick(l.code, v); if (open) closeDialog(); toast(`닉네임이 정해졌어요: ${v}`); }
+  else if (state === 'no') { keepNick(l.code, ''); toast(''); nickDialog('선생님이 다른 닉네임을 써 달라고 했어요. 다시 적어 주세요.'); }
+  else if (state === 'slow') { if (open) nickNote?.('닉네임은 10초에 한 번 보낼 수 있어요. 조금 뒤에 다시 보내 주세요.'); }
+  else if (open) nickNote?.('쓸 수 없는 글자가 있어요. 다른 닉네임을 적어 주세요.');
+  refresh();
+}
+
+// ---------- 선생님 화면: 방 코드 · QR · 닉네임 신청 · 명단 ----------
+let teachEl: HTMLElement | null = null, teachOpen = false, askCount = 0;
+/** 넓은 화면에서는 게임 화면 옆에 늘 붙어 있고, 좁은 화면에서는 '우리 반' 단추로 연다. */
+const teachWide = () => window.matchMedia('(min-width: 1100px)').matches;
+function teachButton() {
+  const l = link;
+  if (!l?.teacher || !l.cls) return '';
+  const n = l.asks.length;
+  return `<button class="ar-key ghost w-teach-btn" data-teach aria-label="우리 반 보기${n ? `, 닉네임 신청 ${n}건` : ''}">${icon('users', 17)}<span class="w-hide-s">우리 반</span>${n ? `<b class="w-teach-badge">${n}</b>` : ''}</button>`;
+}
+function openTeach() { teachOpen = true; paintTeach(); teachEl?.querySelector<HTMLElement>('[data-teach-close]')?.focus(); }
+function paintTeach() {
+  const l = link, on = !!l && l.me >= 0 && l.teacher && !!l.cls;
+  document.body.classList.toggle('w-teaching', on);
+  if (!on || !l || !l.cls) { teachEl?.remove(); teachEl = null; teachOpen = false; return; }
+  if (!teachEl) {
+    teachEl = document.createElement('aside');
+    teachEl.className = 'arcade-root w-root w-teach'; teachEl.setAttribute('aria-label', '선생님 화면');
+    document.body.appendChild(teachEl);
+    teachEl.addEventListener('click', e => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('button'); if (!b) return;
+      b.blur();                                           // 초점이 남으면 게임의 엔터 · 스페이스가 이 단추를 다시 누른다
+      if (b.hasAttribute('data-teach-close')) { teachOpen = false; paintTeach(); return; }
+      const seat = Number(b.dataset.seat), v = b.dataset.v ?? '';
+      if (b.dataset.judge && Number.isInteger(seat) && v) link?.judge(seat, b.dataset.judge === 'yes', v);
+    });
+    teachEl.addEventListener('keydown', e => { if (e.key === 'Escape' && teachOpen) { teachOpen = false; paintTeach(); } e.stopPropagation(); });
+  }
+  teachEl.classList.toggle('open', teachOpen);
+  const who = myPass()?.claims.n ?? '';
+  const order = l.room.order;
+  const asks = l.asks.map(([seat, v]) => `<div class="ar-row w-ask"><span class="w-swatch" data-color="${swatchFor(seat).hex}"></span><span class="ar-label w-ask-text"><b class="w-ask-nick">${esc(v)}</b><span class="w-ask-who">${esc(seatName(l, seat, order.indexOf(seat) + 1))}</span></span><span class="w-ask-keys"><button class="ar-key ghost" data-judge="yes" data-seat="${seat}" data-v="${esc(v)}">${icon('check', 17)}승인</button><button class="ar-key ghost" data-judge="no" data-seat="${seat}" data-v="${esc(v)}">${icon('close', 17)}반려</button></span></div>`).join('');
+  const rows = l.seats.map(s => {
+    const n = order.indexOf(s.seat) + 1, nick = l.nickOf(s.seat), screenOnly = s.seat === l.host && l.room.big && !n;
+    const tag = [s.seat === l.me ? '나' : '', l.cls!.teachers.includes(s.seat) ? '선생님' : s.seat === l.host ? '방장' : ''].filter(Boolean).join(' · ');
+    // 윗줄은 이름(닉네임이 있으면 닉네임), 아랫줄은 색 이름과 지금 하는 일. 닉네임이 열 글자여도 잘리지 않게 두 줄로 쓴다
+    const sub = [nick ? `${swatchFor(s.seat).name} 도름이${n ? ` ${n}` : ''}` : '', tag || (l.viewOf(s.seat) === 'pad' ? '조작기' : '각자 화면')].filter(Boolean).join(' · ');
+    return `<div class="ar-row w-person w-teach-row"><span class="w-swatch" data-color="${screenOnly ? '#14285F' : swatchFor(s.seat).hex}"></span><span class="ar-label w-ask-text"><b class="w-ask-nick">${screenOnly ? '큰 화면' : esc(seatName(l, s.seat, n))}</b><span class="w-ask-who">${esc(sub)}</span></span>${nick ? `<button class="ar-key ghost w-unname" data-judge="no" data-seat="${s.seat}" data-v="${esc(nick)}" aria-label="${esc(nick)} 닉네임 지우기">${icon('close', 17)}</button>` : '<span class="w-unname-gap"></span>'}</div>`;
+  }).join('');
+  teachEl.innerHTML = `
+    <div class="w-teach-head"><span class="ar-count w-teacher-tag">선생님</span><b class="w-teacher-nick">${who ? `@${esc(who)}` : ''}</b><button class="ar-key ghost w-x" data-teach-close aria-label="닫기">${icon('close', 17)}</button></div>
+    ${l.cls.title ? `<p class="w-room-title">${esc(l.cls.title)}</p>` : ''}
+    <div class="w-teach-code"><p class="ar-kicker w-kicker">방 코드</p><div class="lab-code w-bigcode">${esc(l.code)}</div><div class="w-qr">${qrFor(inviteUrl())}</div><p class="ar-sub w-teach-how">QR 을 찍거나 방 코드를 넣으면 바로 들어와요. ${l.cls.rank ? '깬 시간은 순위에 올라가요.' : '순위에는 올리지 않아요.'}</p></div>
+    <p class="ar-kicker w-kicker w-teach-k">닉네임 신청 <span class="lab-num">${l.asks.length}</span>건</p>
+    ${asks ? `<p class="ar-sub w-asks-care">이름, 학번, 연락처 같은 개인정보가 든 닉네임은 반려해 주세요.</p><div class="lab-roster w-asks">${asks}</div>` : '<p class="w-public-none w-asks-none">기다리는 신청이 없어요. 학생이 닉네임을 보내면 여기에 떠요.</p>'}
+    <p class="ar-kicker w-kicker w-teach-k">명단 <span class="lab-num">${l.seats.length}</span>명</p>
+    <div class="lab-roster w-teach-list">${rows}</div>`;
+  paintSwatches(teachEl);
 }
 
 /** 친구 부르기 창: 방 코드를 크게, QR, 주소 복사. */
@@ -394,9 +623,9 @@ function drawJoining() {
 }
 
 const personRow = (seat: number, n: number, l: RoomLink) => {
-  const sw = swatchFor(seat), tags = [seat === l.me ? '나' : '', seat === l.host ? '방장' : ''].filter(Boolean).join(' · ');
+  const sw = swatchFor(seat), tags = [seat === l.me ? '나' : '', l.cls?.teachers.includes(seat) ? '선생님' : seat === l.host ? '방장' : ''].filter(Boolean).join(' · ');
   const screenOnly = seat === l.host && l.room.big && !n;   // 함께 보기 방의 큰 화면(도름이 없이 보여 주기만 한다)
-  return `<div class="ar-row w-person"><span class="w-swatch" data-color="${screenOnly ? '#14285F' : sw.hex}"></span><span class="ar-label">${screenOnly ? '큰 화면' : `${esc(sw.name)} 도름이${n ? ` ${n}` : ''}`}</span><span class="ar-count">${esc(tags || (l.viewOf(seat) === 'pad' ? '조작기' : '각자 화면'))}</span></div>`;
+  return `<div class="ar-row w-person"><span class="w-swatch" data-color="${screenOnly ? '#14285F' : sw.hex}"></span><span class="ar-label">${screenOnly ? '큰 화면' : esc(seatName(l, seat, n))}</span><span class="ar-count">${esc(tags || (l.viewOf(seat) === 'pad' ? '조작기' : '각자 화면'))}</span></div>`;
 };
 const paintSwatches = (root: ParentNode) => root.querySelectorAll<HTMLElement>('[data-color]').forEach(el => { el.style.background = el.dataset.color!; });
 
@@ -406,14 +635,20 @@ function drawWait(problem = '') {
   if (shown !== 'wait') {
     host.setStop(null);
     host.app.innerHTML = host.shell(`<div class="w-wait">
+        <p class="w-room-title" hidden></p>
         <p class="ar-kicker w-kicker">방 코드</p><div class="lab-code w-bigcode">${esc(l.code)}</div>
         <p class="ar-sub w-wait-say" role="status"></p>
         <div class="lab-roster w-people-list"></div>
-        <div class="lab-actions"><button class="ar-key ghost" data-leave>${icon('door', 17)}방 나가기</button></div>
+        <div class="lab-actions w-wait-actions"><span class="w-nick-slot"></span><button class="ar-key ghost" data-leave>${icon('door', 17)}방 나가기</button></div>
       </div>`, '방에 들어왔어요', 'ROOM');
     host.app.querySelector<HTMLButtonElement>('[data-leave]')!.onclick = leaveRoom;
     shown = 'wait';
   }
+  // 선생님 방이면: 방 제목과 닉네임 단추
+  const titleEl = host.app.querySelector<HTMLElement>('.w-room-title')!, slot = host.app.querySelector<HTMLElement>('.w-nick-slot')!;
+  titleEl.textContent = l.cls?.title ?? ''; titleEl.hidden = !l.cls?.title;
+  const nb = nickButton(false);
+  if (slot.dataset.key !== nb) { slot.dataset.key = nb; slot.innerHTML = nb; slot.hidden = !nb; slot.querySelector<HTMLButtonElement>('[data-nick]')?.addEventListener('click', e => nickDialog('', e.currentTarget as HTMLElement)); }
   host.app.querySelector('.w-wait-say')!.textContent = problem || '방장이 스테이지를 고르고 있어요. 고르면 바로 함께 시작해요.';
   const list = host.app.querySelector<HTMLElement>('.w-people-list')!;
   list.innerHTML = l.seats.map(s => personRow(s.seat, l.room.order.indexOf(s.seat) + 1, l)).join('');
@@ -427,7 +662,7 @@ function drawPad() {
   if (shown === 'pad' && padScreen) { padScreen.paint(); return; }
   host.setStop(null);
   host.app.innerHTML = `<main class="arcade-root w-root w-ctl">
-    <div class="w-ctl-top">${roomTags()}<span class="w-ctl-gap"></span><button class="ar-key ghost" data-own aria-label="내 화면으로 보기">${icon('screen', 17)}<span class="w-hide-s">내 화면으로 보기</span></button><button class="ar-key ghost" data-leave aria-label="방 나가기">${icon('door', 17)}<span class="w-hide-s">방 나가기</span></button></div>
+    <div class="w-ctl-top">${roomTags()}<span class="w-ctl-gap"></span><span class="w-nick-slot"></span><button class="ar-key ghost" data-own aria-label="내 화면으로 보기">${icon('screen', 17)}<span class="w-hide-s">내 화면으로 보기</span></button><button class="ar-key ghost" data-leave aria-label="방 나가기">${icon('door', 17)}<span class="w-hide-s">방 나가기</span></button></div>
     <div class="w-ctl-me"><div class="w-ctl-tile" aria-hidden="true"><b class="w-ctl-num"></b></div><p class="w-ctl-name"></p><p class="w-ctl-say" role="status"></p></div>
     <div class="w-ctl-pad"></div>
   </main>`;
@@ -435,16 +670,19 @@ function drawPad() {
   const input = new PadInput(); input.mount(root.querySelector<HTMLElement>('.w-ctl-pad')!);
   root.querySelector<HTMLButtonElement>('[data-leave]')!.onclick = leaveRoom;
   root.querySelector<HTMLButtonElement>('[data-own]')!.onclick = () => { link?.setView('play'); refresh(); };
-  const send = padSender();
-  let raf = 0;
+  const send = padSender(p => link?.sendPad(p));
+  let raf = 0, padHost = l.host;
   const frame = (now: number) => { raf = requestAnimationFrame(frame); const p = input.read(); if (link?.open && !link.isHost) send(p, now); };
   raf = requestAnimationFrame(frame);
   const paint = () => {
     const k = link; if (!k) return;
-    const sw = swatchFor(k.me), n = k.room.order.indexOf(k.me) + 1;
+    if (k.host !== padHost) { padHost = k.host; send.again(); }   // 방장이 바뀌었다: 누르고 있던 조작을 새 방장에게 바로 다시 보낸다
+    const sw = swatchFor(k.me), n = k.room.order.indexOf(k.me) + 1, nick = k.nickOf(k.me);
     root.querySelector<HTMLElement>('.w-ctl-tile')!.style.background = sw.hex;
     root.querySelector('.w-ctl-num')!.textContent = n ? String(n) : '';
-    root.querySelector('.w-ctl-name')!.textContent = n ? `나는 ${sw.name} 도름이 ${n}번` : `나는 ${sw.name} 도름이`;
+    root.querySelector('.w-ctl-name')!.textContent = nick ? `나는 ${nick}` : n ? `나는 ${sw.name} 도름이 ${n}번` : `나는 ${sw.name} 도름이`;
+    const slot = root.querySelector<HTMLElement>('.w-nick-slot')!, nb = nickButton();
+    if (slot.dataset.key !== nb) { slot.dataset.key = nb; slot.innerHTML = nb; slot.hidden = !nb; slot.querySelector<HTMLButtonElement>('[data-nick]')?.addEventListener('click', e => nickDialog('', e.currentTarget as HTMLElement)); }
     const p = k.room.stage >= 0 ? findPack(k.room.pack) : null, st = p?.stages[k.room.stage];
     root.querySelector('.w-ctl-say')!.textContent = st ? `${p!.name} ${String(k.room.stage + 1).padStart(2, '0')} ${st.name}. 큰 화면을 보며 움직여요.` : '방장이 스테이지를 고르고 있어요.';
     updateStrip();
@@ -455,21 +693,10 @@ function drawPad() {
   host.setStop(() => { cancelAnimationFrame(raf); input.dispose(); padScreen = null; if (shown === 'pad') shown = ''; });
 }
 
-/** 손님의 조작 보내기: 바뀌면 바로(초당 서른 번까지), 안 바뀌어도 가끔 다시 보낸다. 짧게 누른 확인도 빠지지 않게 모아 둔다. */
-function padSender() {
-  let at = 0, key = '', held = false;
-  return (p: Pad, now: number) => {
-    held ||= !!p.a;
-    if (now - at < 33) return;
-    const out: Pad = { m: p.m, j: p.j, a: held, jn: p.jn };
-    const k = `${out.m}${out.j ? 1 : 0}${held ? 1 : 0}${out.jn}`;
-    if (k !== key || now - at >= 250) { link?.sendPad(out); key = k; at = now; }
-    held = false;
-  };
-}
-
 // ---------- 게임 화면 ----------
-type Game = { key: string; stop(): void; sync(): void; onPad(seat: number, pad: Pad): void; onSnap(wire: Wire): void; reorder(before: number[], after: number[]): void };
+type Game = { key: string; stop(): void; sync(): void; onPad(seat: number, pad: Pad): void; onSnap(wire: Wire): void; reorder(before: number[], after: number[]): void; onRank(): void };
+/** 방 서버가 마지막으로 알려 준 순위 소식(어느 판의 것인지는 run 으로 가린다). */
+let lastRank: RankNews | null = null;
 const netStats = { snapBytes: 0, snaps: 0, stepMs: 0, steps: 0, frameMs: 0, frames: 0, got: 0, since: 0 };
 
 function openGame(p: Pack, si: number) {
@@ -480,7 +707,7 @@ function openGame(p: Pack, si: number) {
   host.setStop(null);
   const stage = p.stageData[si];
   const world: World = createWorld(stage, l.room.order.map(seat => ({ color: colorFor(seat) })), l.room.seed);
-  const pads = new Map<number, { pad: Pad; at: number; tap: boolean }>();   // tap: 아직 걸음에 쓰이지 않은 짧은 확인 누름
+  const pads = new GuestPads();
   let track: Track = newTrack();
   let cam: Camera | undefined, raf = 0, last = performance.now(), acc = 0, ticks = 0, sent = 0, alive = true;
   let hintUntil = last + 6000, ended = false, mathText = '', wasHost = l.isHost, hudKey = '', hostSeat = l.host, myA = false;
@@ -496,36 +723,50 @@ function openGame(p: Pack, si: number) {
   const box = app.querySelector<HTMLElement>('.w-stagebox')!, hintEl = app.querySelector<HTMLElement>('.w-hint')!, mathEl = app.querySelector<HTMLElement>('.w-math')!, endEl = app.querySelector<HTMLElement>('.w-end')!, tools = app.querySelector<HTMLElement>('.w-hud-r')!;
   const input = new PadInput(); input.mount(box);
   hintEl.textContent = stage.hint;
-  const send = padSender();
+  const send = padSender(pad => link?.sendPad(pad));
   const meIdx = () => (link ? link.room.order.indexOf(link.me) : -1);
   const blur = (e: Event) => (e.currentTarget as HTMLElement).blur();   // 단추에 초점이 남으면 엔터·스페이스가 그 단추를 다시 누른다
 
   /** 위쪽 줄의 단추: 방장과 손님이 다르고, 방장이 바뀌면 다시 그린다. */
   const hud = () => {
     const k = link; if (!k) return;
-    const now = `${k.isHost}|${k.room.big}|${joinIn}|${ended}`;
+    const now = `${k.isHost}|${k.room.big}|${joinIn}|${ended}|${teachButton()}|${nickButton()}`;
     updateStrip();
     box.classList.toggle('w-nopad', meIdx() < 0);
     if (now === hudKey) return; hudKey = now;
     tools.innerHTML = k.isHost
-      ? `${k.room.big ? `<button class="ar-key ghost" data-joinin aria-pressed="${joinIn}" aria-label="이 화면에서도 도름이 움직이기">${icon('up', 17)}<span class="w-hide-s">나도 뛰기</span></button>` : ''}<button class="ar-key ghost" data-retry aria-label="처음부터 다시 하기">${icon('redo', 17)}<span class="w-hide-s">다시 하기</span></button><button class="ar-key ghost" data-invite aria-label="친구 부르기">${icon('plus', 17)}<span class="w-hide-s">친구 부르기</span></button><button class="ar-key ghost" data-pick aria-label="스테이지 고르러 나가기">${icon('door', 17)}<span class="w-hide-s">나가기</span></button>`
-      : `${k.room.big ? `<button class="ar-key ghost" data-padonly aria-label="조작기로 쓰기">${icon('pad', 17)}<span class="w-hide-s">조작기로 쓰기</span></button>` : ''}<button class="ar-key ghost" data-leave aria-label="방 나가기">${icon('door', 17)}<span class="w-hide-s">방 나가기</span></button>`;
+      ? `${k.room.big ? `<button class="ar-key ghost" data-joinin aria-pressed="${joinIn}" aria-label="이 화면에서도 도름이 움직이기">${icon('up', 17)}<span class="w-hide-s">나도 뛰기</span></button>` : ''}${teachButton()}<button class="ar-key ghost" data-retry aria-label="처음부터 다시 하기">${icon('redo', 17)}<span class="w-hide-s">다시 하기</span></button><button class="ar-key ghost" data-invite aria-label="친구 부르기">${icon('plus', 17)}<span class="w-hide-s">친구 부르기</span></button><button class="ar-key ghost" data-pick aria-label="스테이지 고르러 나가기">${icon('door', 17)}<span class="w-hide-s">나가기</span></button>`
+      : `${k.room.big ? `<button class="ar-key ghost" data-padonly aria-label="조작기로 쓰기">${icon('pad', 17)}<span class="w-hide-s">조작기로 쓰기</span></button>` : ''}${teachButton()}${nickButton()}<button class="ar-key ghost" data-leave aria-label="방 나가기">${icon('door', 17)}<span class="w-hide-s">방 나가기</span></button>`;
     tools.querySelector<HTMLButtonElement>('[data-joinin]')?.addEventListener('click', e => { joinIn = !joinIn; blur(e); reconcile(); hud(); });
     tools.querySelector<HTMLButtonElement>('[data-retry]')?.addEventListener('click', () => start(p, si));
     tools.querySelector<HTMLButtonElement>('[data-invite]')?.addEventListener('click', e => { blur(e); inviteDialog(false); });
     tools.querySelector<HTMLButtonElement>('[data-pick]')?.addEventListener('click', () => host.go(`g/${p.id}`));
     tools.querySelector<HTMLButtonElement>('[data-padonly]')?.addEventListener('click', () => { link?.setView('pad'); refresh(); });
     tools.querySelector<HTMLButtonElement>('[data-leave]')?.addEventListener('click', leaveRoom);
+    tools.querySelector<HTMLButtonElement>('[data-teach]')?.addEventListener('click', e => { blur(e); openTeach(); });
+    tools.querySelector<HTMLButtonElement>('[data-nick]')?.addEventListener('click', e => { blur(e); nickDialog(); });
+  };
+
+  /** 끝 창의 순위 줄: 선생님 방이고 순위에 올리기가 켜져 있을 때만. 등수는 도름스에 적힌 뒤에 온다. */
+  const rankLine = () => {
+    const el = endEl.querySelector<HTMLElement>('.w-rankline'), k = link;
+    if (!el || !k) return;
+    const news = lastRank && lastRank.run === k.room.run ? lastRank : null;
+    el.hidden = !k.cls?.rank;
+    const time = mmss(news ? news.ms : world.t * 1000);
+    el.textContent = !news ? `우리 방 기록 ${time}` : news.rank > 0 ? `우리 방 기록 ${time}, ${news.rank}번째로 빨라요.${news.best ? ' 우리 방에서 가장 빠른 기록이에요.' : ''}` : `우리 방 기록 ${time}. 이번 기록은 순위에 올리지 못했어요.`;
   };
 
   const finish = () => {
     ended = true; hud();
     const k = link; if (!k) return;
-    const sec = Math.round(world.t), time = `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
+    if (k.isHost) k.sendWon(world.t * 1000);              // 선생님 방이고 순위에 올리기가 켜져 있으면 방 서버가 확인해 도름스에 적는다(판마다 한 번)
+    const time = mmss(world.t * 1000);
     const next = si + 1 < p.stages.length, n = world.players.length;
     endEl.hidden = false;
     endEl.innerHTML = `<div class="ar-cabinet lab-modal" role="dialog" aria-label="스테이지 끝"><div class="ar-bezel"><div class="ar-brand"><span class="ar-badge">CLEAR</span> 스테이지 끝</div></div><div class="ar-screen"><div class="ar-screen-inner">
       <div class="ar-title">다 함께 성공했어요</div><p class="ar-sub">${n}명이 모두 문으로 들어갔어요. 걸린 시간 <span class="ar-mono w-time">${time}</span></p>
+      <p class="ar-sub w-rankline" role="status" hidden></p>
       ${k.isHost
         ? `<div class="lab-actions">${next ? `<button class="ar-key mustard" data-next>${icon('right', 17)}다음 스테이지</button>` : `<button class="ar-key mustard" data-again>${icon('redo', 17)}한 번 더</button>`}${next ? `<button class="ar-key ghost" data-again>${icon('redo', 17)}한 번 더</button>` : ''}<button class="ar-key ghost" data-list>스테이지 고르기</button></div>`
         : '<p class="ar-sub w-end-wait" role="status">방장이 다음 스테이지를 고르고 있어요.</p>'}
@@ -534,6 +775,7 @@ function openGame(p: Pack, si: number) {
     endEl.querySelector<HTMLButtonElement>('[data-again]')?.addEventListener('click', () => start(p, si));
     endEl.querySelector<HTMLButtonElement>('[data-list]')?.addEventListener('click', () => host.go(`g/${p.id}`));
     endEl.querySelector<HTMLButtonElement>('button')?.focus();
+    rankLine();
   };
 
   const frame = (now: number) => {
@@ -549,7 +791,7 @@ function openGame(p: Pack, si: number) {
         sent = Math.min(Math.max(sent, track.b?.n ?? 0), 1e9);   // 요약의 차례 번호는 앞 방장의 것에 이어서 센다(터무니없이 큰 번호는 잇지 않는다)
         reconcile(); acc = 0;
       }
-      track = newTrack(); pads.clear();
+      track = newTrack();                                 // 손님들의 조작은 방장이 바뀐 것을 안 그때(sync) 비웠다: 여기서 또 비우면 그새 다시 온 조작을 잃는다
       if (ended) { ended = false; finishIfWon(); }
       hud();
     }
@@ -561,8 +803,8 @@ function openGame(p: Pack, si: number) {
       const ran = acc >= 1 / 60;
       while (acc >= 1 / 60) {
         const order = k.room.order, s0 = performance.now();
-        step(world, order.map(seat => { if (seat === k.me) return hostPad; const g = pads.get(seat); return g && now - g.at < 1500 ? (g.tap && !g.pad.a ? { ...g.pad, a: true } : g.pad) : NO_PAD; }), 1 / 60);
-        for (const g of pads.values()) g.tap = false;       // 손님의 짧은 확인(누름과 뗌이 걸음 한 번 사이에 함께 온 것)도 한 걸음은 쓰인다
+        step(world, order.map(seat => (seat === k.me ? hostPad : pads.get(seat, now))), 1 / 60);   // 손님은 마지막으로 보낸 조작을 그대로 이어 쓴다
+        pads.stepped();
         acc -= 1 / 60; ticks++;
         if (ticks % (world.won ? 30 : SNAP_EVERY) === 0) { netStats.snapBytes = k.sendSnap(toWire(world, order, k.room.run, ++sent)); netStats.snaps++; }
         netStats.stepMs += performance.now() - s0; netStats.steps++;
@@ -574,7 +816,7 @@ function openGame(p: Pack, si: number) {
     }
     const me = meIdx();
     cam = cameraFor(world, world.won || (k.isHost && k.room.big) || me < 0 ? null : me, cam);
-    render(c, world, cam, now, me >= 0 ? me : null);
+    render(c, world, cam, now, me >= 0 ? me : null, headNames(k));
     if (now > hintUntil && hintEl.textContent) hintEl.textContent = '';
     const math = hintEl.textContent || world.won ? '' : nearText(world, me >= 0 ? me : null);
     if (math !== mathText) {
@@ -596,10 +838,13 @@ function openGame(p: Pack, si: number) {
     },
     sync() {
       // 방장이 바뀌었으면 손님은 앞 방장의 요약 차례를 잊는다(새 방장의 첫 요약부터 받는다)
-      if (link && link.host !== hostSeat) { hostSeat = link.host; if (!link.isHost) track = newTrack(); }
+      // 손님은 누르고 있던 조작을 새 방장에게 바로 다시 보낸다(되풀이 보내기는 1초에 한 번뿐이라 기다리면 그동안 도름이가 선다)
+      if (link && link.host !== hostSeat) { hostSeat = link.host; pads.clear(); send.again(); if (!link.isHost) track = newTrack(); }
       hud();
+      if (ended) rankLine();
     },
-    onPad(seat, pad) { pads.set(seat, { pad, at: performance.now(), tap: !!pad.a || !!pads.get(seat)?.tap }); },
+    onRank() { if (ended) rankLine(); },
+    onPad(seat, pad) { pads.set(seat, pad, performance.now()); },
     onSnap(wire) { if (link && !link.isHost && pushWire(track, wire, link.room.run, performance.now())) netStats.got++; },
     reorder(before, after) {
       for (let i = before.length - 1; i >= 0; i--) if (!after.includes(before[i])) removePlayer(world, i);
@@ -615,8 +860,8 @@ function openGame(p: Pack, si: number) {
     const w = window as unknown as Record<string, unknown>;
     w.__world = () => world;
     netStats.since = performance.now(); netStats.snaps = netStats.steps = netStats.frames = netStats.got = 0; netStats.stepMs = netStats.frameMs = 0;
-    w.__net = () => ({ code: link?.code, me: link?.me, host: link?.host, isHost: link?.isHost, room: link?.room, seats: link?.seats, myIndex: meIdx(), ...netStats, seconds: (performance.now() - netStats.since) / 1000 });
+    w.__net = () => ({ code: link?.code, me: link?.me, host: link?.host, isHost: link?.isHost, room: link?.room, seats: link?.seats, myIndex: meIdx(), held: link?.room.order.map(seat => pads.get(seat, performance.now()).m), heads: link ? headNames(link) : undefined, ...netStats, seconds: (performance.now() - netStats.since) / 1000 });
   }
 }
 
-if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__room = () => (link ? { code: link.code, me: link.me, host: link.host, isHost: link.isHost, open: link.open, room: link.room, seats: link.seats, shown } : null);
+if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__room = () => (link ? { code: link.code, me: link.me, host: link.host, isHost: link.isHost, open: link.open, room: link.room, seats: link.seats, shown, cls: link.cls, teacher: link.teacher, names: [...link.names], asks: link.asks, myAsk: link.myAsk } : null);
