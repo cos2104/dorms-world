@@ -443,7 +443,11 @@ function createDialog(opener: HTMLElement) {
   const asTeacher = () => !!teacher && (!ask || !!agreeEl?.checked);
   // 동의하기 전에는 선생님 칸(방 제목, 순위)을 쓸 수 없다
   const lock = () => { const off = !asTeacher(); el.querySelector('.w-make-teacher')?.classList.toggle('is-off', off); if (titleEl) titleEl.disabled = off; el.querySelectorAll<HTMLButtonElement>('[data-rank]').forEach(b => { b.disabled = off; }); if (off) rank = false; };
-  if (agreeEl) agreeEl.onchange = () => { lock(); paint(); };
+  if (agreeEl) {
+    agreeEl.onchange = () => { lock(); paint(); };
+    // 안내가 먼저 보이게: 창을 맨 위로 두고 동의 칸에 초점을 둔다(긴 창에서 아래쪽 단추로 초점이 가면 안내가 화면 밖으로 밀린다)
+    requestAnimationFrame(() => { agreeEl.focus({ preventScroll: true }); const box = agreeEl.closest<HTMLElement>('.w-dialog'); if (box) box.scrollTop = 0; });
+  }
   const paint = () => {
     el.querySelectorAll<HTMLElement>('[data-rank]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.rank === '1') === rank)));
     const rankNote = el.querySelector('[data-rank-note]');
