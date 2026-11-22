@@ -487,10 +487,31 @@ if (!flag('only-shots') && ownRoom) {
   await S2.page.locator('[data-nick]').first().click(); await S2.page.waitForSelector('#w-nick'); await S2.page.locator('#w-nick').fill('상어'); await S2.page.locator('.w-dialog [data-send]').click();
   await until(async () => (await S2.room()).myAsk === '상어');
   await T.open(`?room=${code}`);
-  const back = await until(async () => { const r = await T.room(); return r?.teacher && JSON.stringify(r.asks) === '[[2,"상어"]]' ? r : null; }, 8000);
+  const back = await until(async () => { const r = await T.room(); return r?.teacher && r.isHost && JSON.stringify(r.asks) === '[[2,"상어"]]' ? r : null; }, 8000);
   ok('선생님이 출입증으로 다시 들어오면 쌓인 신청이 보이고 승인할 수 있다', !!back && back.isHost === true && await T.page.locator('.w-teach .w-ask').count() === 1);   // 돌아온 선생님은 방장을 돌려받는다(순위는 선생님의 기기가 방장일 때만 오른다)
   await T.page.locator('.w-teach [data-judge="yes"]').first().click();
   ok('돌아온 선생님의 승인이 모두에게 닿는다', !!(await until(async () => (await S1.room()).names.some(n => n[1] === '상어') && (await S2.room()).names.some(n => n[1] === '상어'))));
+  // 게임 도중에 선생님이 나갔다 돌아온다: 판이 처음으로 돌아가지 않고, 선생님 도름이도 다시 선다
+  await pickStage(T, 'etc/tutorial', 0);
+  await until(async () => { const r = await S1.room(), w = await S1.world().catch(() => null); return r?.shown === 'game' && r.room.stage === 0 && w?.n === 3; }, 8000);
+  await T.page.goto('about:blank');
+  await until(async () => (await S1.room())?.isHost === true && (await S1.world().catch(() => null))?.n === 2);
+  await sleep(500);
+  // 남은 두 학생 가운데 오른쪽에 선 학생을 걷게 한다(도름이끼리는 지나가지 못해 왼쪽 학생은 막힌다)
+  const order2 = (await S1.room()).room.order, xs2 = (await S1.world()).xs;
+  const moverSeat = order2[xs2.indexOf(Math.max(...xs2))], mover = moverSeat === (await S1.room()).me ? S1 : S2;
+  /** 보는 기기(viewer)의 세계에서 걷는 학생의 가로 자리. 차례가 바뀌어도 자리 번호로 찾는다. */
+  const moverX = async viewer => { const r = await viewer.room(), w = await viewer.world().catch(() => null); const i = r?.room.order.indexOf(moverSeat) ?? -1; return w && i >= 0 ? w.xs[i] : null; };
+  const start = await moverX(S1);
+  await mover.page.bringToFront(); await mover.hold('ArrowRight', 1500); await sleep(500);
+  const far = await moverX(S1);
+  await T.open(`?room=${code}`);
+  const again = await until(async () => { const r = await T.room(), w = await T.world().catch(() => null); return r?.teacher && r.isHost && w?.n === 3 ? w : null; }, 10000);
+  await sleep(1200);
+  const [seenByS1, seenByT, afterWorld] = [await moverX(S1), await moverX(T), await S1.world()];
+  ok('게임 도중에 돌아온 선생님이 방장을 돌려받아도 판이 처음으로 돌아가지 않는다(학생이 걸어간 자리 그대로, 도름이 셋)',
+    !!again && far > start + 40 && seenByS1 > far - 30 && seenByT > far - 30 && afterWorld.n === 3,
+    JSON.stringify({ start, far, seenByS1, seenByT, n: afterWorld.n }));
   await T.close(); await S1.close(); await S2.close();
 
   // 학생끼리 연 방: 방 제목도 닉네임도 순위도 없다

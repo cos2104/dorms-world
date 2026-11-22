@@ -61,7 +61,7 @@ export function init(h: Host) {
   takePass();                           // 주소에 붙어 온 출입증은 방 서버 주소가 없어도 주소에서 지운다
   if (!available()) return;
   // 방장이 화면을 내려 두면(다른 앱으로 감) 게임이 멈춘다. 게임 화면을 보고 있는 다음 사람에게 방장을 넘긴다.
-  document.addEventListener('visibilitychange', () => { if (document.hidden && game && link?.isHost) link.yieldHost(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden && game && link?.isHost) link.yieldHost(); else if (!document.hidden) tryClaim(false); });
   // 화면을 떠나면(닫기 · 새로 고침) 연결만 조용히 끊는다. 주소의 방 코드는 그대로 두어 새로 고치면 같은 방으로 돌아온다.
   window.addEventListener('pagehide', () => { const l = link; if (!l) return; link = null; l.leave(); });
   // 뒤로 가기로 되살아난 화면은 연결이 끊긴 채다: 주소를 보고 다시 들어간다
@@ -97,6 +97,22 @@ function myPass(): { pass: string; claims: PassClaims } | null {
   return { pass: v, claims };
 }
 const LOGIN_URL = 'https://dorms.school/login?next=/world';
+const TEACHING_KEY = 'dorms-world.teaching', PASS_OLD = '선생님 확인 시간이 지났어요. dorms.school/world 를 다시 열고 이 방 코드로 들어와 주세요.';
+/** 이 기기가 그 방에서 선생님으로 확인된 적이 있는가(이 탭이 떠 있는 동안). */
+const taughtHere = (code: string) => { try { return sessionStorage.getItem(TEACHING_KEY) === code; } catch { return false; } };
+let claimAt = -1e9;   // 화면이 막 떴을 때(시계가 2초도 안 됐을 때)도 첫 청은 바로 나가야 한다
+/**
+ * 내 선생님 방인데 학생 기기가 방장이면 방장을 돌려받는다(순위는 선생님 기기가 방장일 때만 오른다).
+ * 게임이 열려 있으면 그 판의 요약을 한 번 받은 뒤에(ready) 청한다: 받은 데서 이어 굴려야 판이 처음으로 돌아가지 않는다.
+ * 화면이 내려가 있으면 청하지 않는다(내려간 화면은 게임을 굴리지 못한다).
+ */
+function tryClaim(ready: boolean) {
+  const l = link, now = performance.now();
+  if (!l || !l.teacher || !l.cls || l.isHost || l.host < 0 || l.cls.teachers.includes(l.host) || document.hidden || l.viewOf(l.me) !== 'play') return;
+  if (l.room.stage >= 0 && !ready) return;
+  if (now - claimAt < 2000) return;
+  claimAt = now; l.claimHost();
+}
 // 선생님 방 안내에 동의했는지: 출입증에 적혀 있거나(도름스에 남은 기록), 이 기기에서 방금 동의했거나
 const NOTICE_KEY = 'dorms-world.notice';
 function noticeAgreed(claims: PassClaims) {
@@ -150,7 +166,8 @@ function enter(code: string, o: { create?: boolean; pub?: boolean; big?: boolean
     if (l !== link) return;
     const promoted = turned(l);
     if (l.isHost) reconcile();
-    if (promoted) toast('앞 방장이 나가서 이제 내가 방장이에요.');
+    if (promoted) toast(l.teacher && l.cls ? '선생님 기기가 다시 방장이 됐어요.' : '앞 방장이 나가서 이제 내가 방장이에요.');
+    tryClaim(false);
     refresh();
     paintTeach();
   };
@@ -164,13 +181,15 @@ function enter(code: string, o: { create?: boolean; pub?: boolean; big?: boolean
     paintTeach();
   };
   // 출입증이 있으면 들어올 때마다 낸다: 내가 연 방이면 선생님 방이 되고, 내 선생님 방에 다시 들어온 것이면 선생님 화면이 돌아온다
-  const teacherNow = myPass();
-  const mine = joinRoom(ROOM_URL, code, { ...o, view: 'auto', id: tabId(), pass: teacherNow?.pass, agree: !!teacherNow && noticeAgreed(teacherNow.claims) }, {
+  const teacherNow = myPass(), agreedNow = !!teacherNow && noticeAgreed(teacherNow.claims);
+  const mine = joinRoom(ROOM_URL, code, { ...o, view: 'auto', id: tabId(), pass: teacherNow?.pass, agree: agreedNow }, {
     hello: l => {
       if (l !== link) return;
       remade = 0; toast(''); changed(l);
       if (pendingInvite && l.isHost) { pendingInvite = false; inviteDialog(true); }
       // 새로 고쳐 들어왔으면 승인받았던 닉네임을 다시 신청한다(닉네임은 연결에 붙어 있어 새 연결에는 없다)
+      // 내가 선생님으로 있던 방인데 출입증 기한이 지나 버려졌다: 선생님 화면이 왜 없는지 알린다
+      if (l.cls && taughtHere(l.code) && !teacherNow) toast(PASS_OLD, 12000);
       const kept = keptNick(l.code);
       if (l.cls && kept && !l.nickOf(l.me) && !l.myAsk) l.askName(kept);
     },
@@ -178,12 +197,16 @@ function enter(code: string, o: { create?: boolean; pub?: boolean; big?: boolean
     klass: classChanged,
     pass: ok => {
       if (mine !== link) return;
-      if (!ok && o.create) toast('선생님 확인을 하지 못해 보통 방으로 열었어요. 도름스에 다시 로그인한 뒤 방을 새로 만들어 주세요.', 9000);
+      if (ok) { try { sessionStorage.setItem(TEACHING_KEY, mine.code); } catch { /* 저장이 막힌 기기 */ } }
+      // 스스로 동의하지 않고 연 보통 방에는 알리지 않는다(로그인 문제로 오해한다). 이미 선생님 방인데 출입증을 받지 못한 것은 기한이 지난 것이다
+      else if (mine.cls && taughtHere(mine.code)) toast(PASS_OLD, 12000);
+      else if (o.create && agreedNow) toast('선생님 확인을 하지 못해 보통 방으로 열었어요. 도름스에 다시 로그인한 뒤 방을 새로 만들어 주세요.', 9000);
       classChanged(mine);
+      tryClaim(false);
     },
     nick: nickNews,
     rank: news => { lastRank = news; game?.onRank(); },
-    room: l => { if (l === link) refresh(); },
+    room: l => { if (l === link) { refresh(); tryClaim(false); } },
     pad: (seat, pad) => game?.onPad(seat, pad),
     snap: wire => game?.onSnap(wire),
     retry: n => { if (mine === link) toast(n ? '연결이 끊겼어요. 다시 잇고 있어요.' : '', 0); },
@@ -414,7 +437,7 @@ function createDialog(opener: HTMLElement) {
   const noticePart = ask ? `<div class="w-notice" role="group" aria-labelledby="w-notice-k">
     <p class="ar-kicker w-kicker" id="w-notice-k">선생님 방을 열기 전에 확인해 주세요</p>
     <ul class="w-notes w-notice-list">
-      <li>선생님 방을 열면 선생님의 도름스 회원 번호와 닉네임이 방을 이어 주는 서버(Cloudflare)로 전달돼요. 방이 닫히면 지워져요.</li>
+      <li>선생님 방을 열면 선생님의 도름스 회원 번호와 닉네임이 방을 이어 주는 곳(Cloudflare)으로 전달돼요. 방이 닫히면 지워져요.</li>
       <li>어느 게임을 어느 날 여셨는지가 도름스에 남아요. 게임을 만든 선생님께 몇 개 반에서 쓰였는지 알려 드리는 데만 쓰고, 누가 썼는지는 알리지 않아요.</li>
       <li>순위에 올리면 방 제목, 걸린 시간, 인원, 선생님 닉네임이 누구에게나 보여요.</li>
       <li>학생은 가입 없이 들어오고 학생 정보는 저장하지 않아요. 학생이 닉네임에 이름, 학번, 연락처 같은 개인정보를 적지 않게 살펴봐 주세요. 닉네임은 선생님이 승인해야 보여요.</li>
@@ -845,7 +868,7 @@ function openGame(p: Pack, si: number) {
     },
     onRank() { if (ended) rankLine(); },
     onPad(seat, pad) { pads.set(seat, pad, performance.now()); },
-    onSnap(wire) { if (link && !link.isHost && pushWire(track, wire, link.room.run, performance.now())) netStats.got++; },
+    onSnap(wire) { if (link && !link.isHost && pushWire(track, wire, link.room.run, performance.now())) { netStats.got++; tryClaim(true); } },
     reorder(before, after) {
       for (let i = before.length - 1; i >= 0; i--) if (!after.includes(before[i])) removePlayer(world, i);
       if (world.players.length !== after.length || world.players.some((q, i) => q.color !== colorFor(after[i]))) setPlayerCount(world, after.slice(0, MAX_SEATS).map(colorFor));

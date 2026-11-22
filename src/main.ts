@@ -80,7 +80,7 @@ function packScreen(p: Pack, people = 4, review: Review | null = null) {
   };
   const stateLine = viaDorms ? dormsLine[review?.status ?? ''] ?? '요청 상태를 읽지 못했어요.'
     : review?.state === 'merged' ? '이미 실린 요청이에요.' : review?.state === 'closed' ? '닫힌 요청이에요.'
-    : review?.others.length ? `이 요청에는 이 팩 말고 바뀐 파일이 ${review.others.length}개 있어요. 판을 고친 것은 여기서 돌지 않으니 세션에서 살펴봐 주세요.`
+    : review?.others.length ? `이 요청에는 이 팩 말고 바뀐 파일이 ${review.others.length}개 있어요. 판을 고친 것은 여기서 돌지 않으니 작업 창에서 살펴봐 주세요.`
     : '팩 파일만 바뀐 요청이에요. 아래에서 직접 해 보고, 괜찮으면 승인하러 가서 병합 단추를 누르면 실려요.';
   const reviewBox = review ? `<div class="w-review" role="note">
       <p class="w-review-line"><strong>요청 ${review.number}번을 살펴보는 중이에요.</strong> ${viaDorms ? '보낸 선생님' : '올린 사람'} <span class="w-nick">@${esc(review.author)}</span> · 살펴보는 판 ${esc(review.sha.slice(0, 7))}</p>

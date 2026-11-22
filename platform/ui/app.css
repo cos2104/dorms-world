@@ -205,7 +205,7 @@ body { word-break: keep-all; overflow-wrap: anywhere; }
 .w-root .w-prof { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: .7rem; margin: .2rem 0 1.1rem; text-align: center; }
 .w-root .w-prof-photo { width: 96px; height: 96px; border: 2px solid #14285F; }
 .w-root .w-prof-id { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: .5rem; min-width: 0; max-width: 100%; }
-.w-root .w-prof-name { margin: 0; max-width: 100%; font-size: 1.35rem; line-height: 1.3; word-break: normal; overflow-wrap: anywhere; }   /* 띄어쓰기 없는 긴 닉네임: keep-all 이면 '@' 만 첫 줄에 남는다 */
+.w-root .w-prof-name { margin: 0; max-width: 100%; font-size: 1.35rem; line-height: 1.3; word-break: normal; overflow-wrap: anywhere; text-wrap: balance; }   /* 띄어쓰기 없는 긴 닉네임: keep-all 이면 '@' 만 첫 줄에 남는다. balance 로 마지막 줄에 한 글자만 남지 않게 */
 .w-root .w-prof-bio { margin: 0; max-width: 100%; font-family: "Noto Sans KR", system-ui, sans-serif; color: #14285F; overflow-wrap: anywhere; }
 .w-root .w-prof-tags { list-style: none; margin: 0; padding: 0; justify-content: center; max-width: 100%; }
 .w-root .w-prof-tags > li { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }

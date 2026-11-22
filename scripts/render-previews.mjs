@@ -8,7 +8,7 @@ import { chromium } from 'playwright';
 const want = process.argv.slice(2).filter(a => /^[a-z0-9-]{1,40}\/[a-z0-9-]{1,40}$/.test(a));
 const PORT = 5390 + Math.floor(Math.random() * 9);
 const win = process.platform === 'win32';
-const server = spawn(win ? 'npx.cmd' : 'npx', ['vite', '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'], { stdio: 'ignore', shell: win, env: { ...process.env, VITE_ROOM_URL: '' } });
+const server = spawn(win ? 'npx.cmd' : 'npx', ['vite', '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'], { stdio: 'ignore', shell: win, env: { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/SECRET|TOKEN|PASSWORD|KEY$/i.test(k))), VITE_ROOM_URL: '' } });   // 발행 작업의 비밀값을 화면 서버에 물려주지 않는다
 const stop = () => { try { server.kill(); } catch { /* 이미 끝남 */ } };
 process.on('exit', stop);
 const base = `http://127.0.0.1:${PORT}/world/`;

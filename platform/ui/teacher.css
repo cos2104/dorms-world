@@ -22,7 +22,7 @@
 .w-root.w-dialog .w-make-note { margin: 0 0 .2rem; }
 
 /* ---------- 방 제목(남이 쓴 글: 길어도 칸 안에서 접힌다) ---------- */
-.w-root .w-room-title { margin: 0 0 .6rem; font-family: "Galmuri11", "Noto Sans KR", monospace; font-weight: 700; font-size: 1.2rem; line-height: 1.4; color: #0E1C45; overflow-wrap: anywhere; }
+.w-root .w-room-title { margin: 0 0 .6rem; text-wrap: balance; font-family: "Galmuri11", "Noto Sans KR", monospace; font-weight: 700; font-size: 1.2rem; line-height: 1.4; color: #0E1C45; overflow-wrap: anywhere; }
 .w-root .w-room-title[hidden] { display: none; }
 
 /* ---------- 닉네임 단추가 들어가는 자리 ---------- */
@@ -44,7 +44,7 @@
 .w-root .w-asks-none { font-size: .85rem; }
 /* 닉네임 신청 한 건: 윗줄에 색 · 닉네임 · 누구인지, 아랫줄에 승인 · 반려 단추 둘(같은 폭) */
 .w-root.w-teach .w-asks .ar-row.w-ask { grid-template-columns: 30px minmax(0, 1fr); gap: .45rem .6rem; align-items: center; cursor: default; padding-block: .5rem; }
-.w-root .w-ask .w-ask-text { display: grid; gap: .1rem; min-width: 0; white-space: normal; overflow: visible; }
+.w-root :is(.w-ask, .w-teach-row) .w-ask-text { display: grid; gap: .1rem; min-width: 0; white-space: normal; overflow: visible; }
 .w-ask-nick { font-size: 1.05rem; line-height: 1.4; color: #0E1C45; overflow-wrap: anywhere; }
 .w-ask-who { font-family: "Noto Sans KR", system-ui, sans-serif; font-weight: 400; font-size: .8rem; line-height: 1.5; color: var(--ar-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .w-ask-keys { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
@@ -55,7 +55,21 @@
 .w-unname-gap { display: block; width: 40px; height: 40px; }
 /* '우리 반' 단추(좁은 화면에서 선생님 화면을 연다)와 기다리는 신청 수 */
 .w-root .w-teach-btn { position: relative; }
-.w-teach-badge { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 999px; background: #14285F; color: #F4F7FF; font-family: "VT323", "Galmuri11", monospace; font-weight: 400; font-size: 1rem; line-height: 1; }
+.w-teach-badge { position: absolute; top: -7px; right: -4px; display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 999px; background: #14285F; color: #F4F7FF; font-family: "VT323", "Galmuri11", monospace; font-weight: 400; font-size: 1rem; line-height: 1; }
+/* 좁은 화면 방 줄: 선생님은 단추가 하나 더(우리 반) 있어 방 코드 · 사람 수 · 단추 셋이 한 줄에 들어가게 간격을 좁힌다.
+   420 폭 이하(방 코드 글자에 따라 390 에서 4px, 401 에서 5px 넘쳤다)에서는 단추 셋을 아랫줄 오른쪽으로 내린다(::before 가 줄을 끊는다). */
+@media (max-width: 560px) {
+  .w-root .w-strip:has(.w-teach-btn) { gap: .25rem; }
+  .w-root .w-strip:has(.w-teach-btn) .w-roomtag b { letter-spacing: .02em; }
+}
+@media (max-width: 420px) {
+  .w-root .w-strip:has(.w-teach-btn) { flex-wrap: wrap; row-gap: .45rem; }
+  .w-root .w-strip:has(.w-teach-btn)::before { content: ""; order: 1; flex: 1 0 100%; height: 0; }
+  .w-root .w-strip:has(.w-teach-btn) > .ar-key { order: 2; }
+  /* 함께 보기 방의 선생님 위쪽 줄: 단추가 넷(나도 뛰기 · 우리 반 · 다시 하기 · 나가기)이라 방 코드와 겹쳤다(390 에서 10~28px).
+     방 코드는 '우리 반'을 누르면 크게(QR 과 함께) 보이니 이 줄에서는 뺀다 */
+  .w-root .w-hud:has([data-teach]):has([data-joinin]) .w-hud-l > .w-roomtag { display: none; }
+}
 /* 넓은 화면: 게임 화면 옆에 늘 붙어 있다(게임 화면 + 방 코드와 QR + 명단 + 닉네임 신청 줄이 한 화면) */
 @media (min-width: 1100px) {
   .w-root.w-teach { display: flex; }
@@ -85,7 +99,7 @@
 .w-rank-title, .w-rank-by { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .w-rank-title { color: #0E1C45; }
 .w-rank-by { font-family: "Noto Sans KR", system-ui, sans-serif; font-size: .8rem; line-height: 1.5; color: var(--ar-dim); }
-.w-root .w-rank-time { font-size: 1.3rem; text-align: right; white-space: nowrap; color: #0E1C45; }
+.w-root .w-rank-time { font-size: 1.3rem; text-align: right; white-space: nowrap; color: #0E1C45; font-variant-numeric: tabular-nums; }
 .w-root .w-rank-none { margin: 0; }
 
 /* 낮은 화면(휴대폰 가로): 닉네임 창이 화면 안에 다 들어오게 빈 안내 줄과 여백을 줄인다 */
@@ -101,5 +115,5 @@
 .w-root .w-agree { display: inline-flex; align-items: center; gap: .5rem; min-height: 44px; font-family: "Noto Sans KR", system-ui, sans-serif; font-weight: 700; font-size: .9rem; cursor: pointer; }
 .w-root .w-agree input { width: 20px; height: 20px; accent-color: #14285F; }
 .w-root .w-agree-note { min-height: 0; margin: .1rem 0 0; }
-.w-root .w-make-teacher.is-off { opacity: .55; }
+.w-root .w-make-teacher.is-off { opacity: .8; }   /* 동의 전 꺼진 칸도 글자는 3:1 넘게 읽힌다(.55 에서는 2.3까지 떨어졌다) */
 .w-root .w-asks-care { margin: 0 0 .4rem; font-family: "Noto Sans KR", system-ui, sans-serif; }

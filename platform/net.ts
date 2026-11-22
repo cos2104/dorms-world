@@ -254,6 +254,8 @@ export class RoomLink {
   setView(v: View) { if (this.isHost) return; this.opts.view = v; const s = this.seats.find(x => x.seat === this.me); if (s) s.view = v; this.raw(JSON.stringify({ t: 'view', v })); }
   /** 방장: 화면을 내려 두게 됐다. 게임 화면을 보는 다음 사람에게 방장을 넘긴다(없으면 그대로). */
   yieldHost() { if (this.isHost) this.raw('{"t":"yield"}'); }
+  /** 교사: 학생 기기가 방장을 맡고 있으면 돌려받는다(방 서버가 교사인지 확인한다). */
+  claimHost() { if (this.teacher && !this.isHost) this.raw('{"t":"claim"}'); }
   /** 닉네임을 신청한다(교사 방에서만. 교사가 승인해야 보인다). */
   askName(nick: string) { const v = cleanNick(nick); if (v && this.cls) this.raw(JSON.stringify({ t: 'name', v })); return !!v; }
   /** 교사: 그 자리의 닉네임을 승인하거나(yes) 반려한다. nick 은 내가 본 그 닉네임. */

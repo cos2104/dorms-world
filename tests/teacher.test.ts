@@ -503,6 +503,10 @@ describe('교사 방: 순위와 쓰임 알림', () => {
     r.say(a, { t: 'won', r: 4, ms: 5000 }, 25_000);
     expect(r.ranks).toEqual([]);
     r.say(back, { t: 'pass', v: 'good' }, 25_100);
+    expect(back.saved).toMatchObject({ host: false });                                     // 출입증만으로는 넘어가지 않는다(게임 도중이면 판이 처음으로 돌아간다)
+    r.say(a, { t: 'claim' }, 25_120);                                                      // 학생은 청할 수 없다
+    expect(a.saved).toMatchObject({ host: true });
+    r.say(back, { t: 'claim' }, 25_150);                                                   // 교사 화면이 지금 판의 요약을 받은 뒤 청한다
     expect(back.saved).toMatchObject({ host: true });                                      // 방장이 교사에게 돌아왔다
     expect(a.saved).toMatchObject({ host: false });
     r.say(back, { t: 'won', r: 4, ms: 5200 }, 25_200);                                     // 학생 기기가 연 판은 교사가 방장이 된 뒤에도 오르지 않는다
@@ -513,6 +517,23 @@ describe('교사 방: 순위와 쓰임 알림', () => {
     r.say(back, { t: 'won', r: 5, ms: 6000 }, 36_000);
     expect(r.ranks).toEqual([{ run: 5, pack: 'math/scale-equation', stage: 1, ms: 6000, players: 3, title: '3학년 2반', teacher: TEACHER }]);
     r.say(back, { t: 'won', r: 5, ms: 6000 }, 36_500);                                     // 같은 판은 한 번만
+    expect(r.ranks.length).toBe(1);
+  });
+
+  it('교사가 연 판이라도 도중에 방장이 학생 기기로 넘어갔다 오면 그 판은 순위에 오르지 않는다(다음 판부터 다시 오른다)', () => {
+    const { r, t, a } = playing();
+    r.bye(t);                                                                              // 교사 화면이 내려가 학생 기기가 방장을 넘겨받았다
+    expect(a.saved).toMatchObject({ host: true });
+    expect(a.saved).not.toHaveProperty('ok');                                              // 잠들었다 깨도 이 판은 오를 수 없다
+    const back = r.enter('돌아온 선생님');
+    r.say(back, { t: 'pass', v: 'good' }, 8000);
+    r.say(back, { t: 'claim' }, 8100);
+    expect(back.saved).toMatchObject({ host: true });
+    r.say(back, { t: 'won', r: 3, ms: 9000 }, 9000);                                       // 학생 기기가 꾸며 돌려줬을 수 있는 판
+    expect(r.ranks).toEqual([]);
+    r.say(back, { t: 'room', room: { ...INFO, run: 4, order: [1, 2, 3] } }, 20_000);
+    expect(back.saved).toMatchObject({ host: true, ok: true });
+    r.say(back, { t: 'won', r: 4, ms: 6000 }, 26_000);
     expect(r.ranks.length).toBe(1);
   });
 
@@ -780,7 +801,9 @@ describe('연결(net): 교사 방', () => {
     a.askName('달팽이'); await tick();
     const back = joinRoom('http://room.test', CODE, { socket: net.Fake, pass }, {});
     await tick();
-    expect([back.teacher, back.isHost, back.asks]).toEqual([true, true, [[1, '달팽이']]]);   // 돌아온 교사가 방장을 돌려받는다
+    expect([back.teacher, back.isHost, back.asks]).toEqual([true, false, [[1, '달팽이']]]);   // 출입증만으로는 방장이 넘어가지 않는다
+    back.claimHost(); await tick();
+    expect([back.isHost, a.isHost]).toEqual([true, false]);                                 // 교사 화면이 청하면 방장을 돌려받는다
     back.judge(1, true, '달팽이'); await tick();
     expect(a.nickOf(1)).toBe('달팽이');
     a.leave(); back.leave();

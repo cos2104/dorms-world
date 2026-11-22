@@ -10,7 +10,7 @@ const win = process.platform === 'win32';
 const at = process.argv.indexOf('--url'), url = at >= 0 ? String(process.argv[at + 1] ?? '') : '';
 if (url && !/^https:\/\/[a-z0-9.-]+(\/[\w./-]*)?$/i.test(url)) { console.error('주소 모양이 달라요. 예: --url https://dorms-world.vercel.app/world/'); process.exit(1); }
 const args = ['-y', PINNED, 'scan', ...(url ? ['--url', url] : ['--code-only'])];
-const r = spawnSync(win ? 'npx.cmd' : 'npx', args, { encoding: 'utf8', shell: win, timeout: 180_000 });
+const r = spawnSync(win ? 'npx.cmd' : 'npx', args, { encoding: 'utf8', shell: win, timeout: 180_000, env: { ...process.env, npm_config_ignore_scripts: 'true' } });   // 받아 온 꾸러미의 설치 스크립트는 돌리지 않는다
 if (r.error || r.status !== 0) { console.error(`도름스체크를 돌리지 못했어요(${r.error?.message ?? `끝난 값 ${r.status}`}). 인터넷을 확인하고 다시 해 주세요.`); process.exit(1); }
 if (!existsSync('.dorms-check/scan.json')) { console.error('도름스체크 결과 파일이 없어요.'); process.exit(1); }
 let results = [];

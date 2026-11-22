@@ -192,6 +192,8 @@ export type Saved = {
   code: string; seat: number; key: number; rank: number; view: View; id: string; host: boolean; info?: RoomInfo;
   /** 교사 방에서만: 방을 만든 연결, 교사로 확인된 연결, 승인된 닉네임, 승인을 기다리는 닉네임, 교사 방 정보(방장과 교사의 것에), 판이 열린 때(방장의 것에). */
   maker?: boolean; teacher?: boolean; nick?: string; ask?: string; cls?: Klass; at?: number;
+  /** 방장의 것에: 지금 판이 순위에 오를 수 있는가(교사의 기기가 열었고 그 뒤로 방장이 교사 아닌 기기로 넘어간 적이 없다). */
+  ok?: boolean;
 };
 
 type Conn<S> = {
@@ -276,7 +278,7 @@ export class RoomCore<S> {
       maker: s.maker === true, teacher: s.teacher === true, nick: cleanNick(s.nick), ask: cleanNick(s.ask), askAt: 0, passAt: 0,
     });
     this.nextKey = Math.max(this.nextKey, s.key + 1); this.nextRank = Math.max(this.nextRank, s.rank + 1);
-    if (s.host && s.info) { this.info = cleanRoomInfo(s.info) ?? this.info; this.runAt = int(s.at, 0, Number.MAX_SAFE_INTEGER) ? s.at : 0; this.runOk = !!s.teacher; }
+    if (s.host && s.info) { this.info = cleanRoomInfo(s.info) ?? this.info; this.runAt = int(s.at, 0, Number.MAX_SAFE_INTEGER) ? s.at : 0; this.runOk = s.ok === true && !!s.teacher; }
     if (s.cls && (!this.cls || s.host)) this.cls = cleanKlass(s.cls) ?? this.cls;
   }
 
@@ -284,7 +286,7 @@ export class RoomCore<S> {
     this.out.save?.(c.sock, {
       code: this.code, seat: c.seat, key: c.key, rank: c.rank, view: c.view, id: c.id, host: c.host, ...(c.host ? { info: this.info } : {}),
       ...(c.maker ? { maker: true } : {}), ...(c.teacher ? { teacher: true } : {}), ...(c.nick ? { nick: c.nick } : {}), ...(c.ask ? { ask: c.ask } : {}),
-      ...(this.cls && (c.host || c.teacher) ? { cls: this.cls, ...(c.host ? { at: this.runAt } : {}) } : {}),
+      ...(this.cls && (c.host || c.teacher) ? { cls: this.cls, ...(c.host ? { at: this.runAt, ...(this.runOk ? { ok: true } : {}) } : {}) } : {}),
     });
   }
   /** 교사 방 정보가 바뀌었다: 그 값을 들고 있는 연결(방장과 교사)의 붙임값을 고친다. */
@@ -322,6 +324,7 @@ export class RoomCore<S> {
     const next = live.find(c => c.view === 'play') ?? live[0];
     if (!next) return false;
     next.host = true; next.view = 'play';
+    if (!next.teacher) this.runOk = false;   // 방장이 교사 아닌 기기로 넘어간 판은 순위에 오르지 않는다(그 기기가 세계를 꾸며 돌려줄 수 있다. 보안 검토 2026-11-22)
     this.save(next);
     return true;
   }
@@ -407,9 +410,6 @@ export class RoomCore<S> {
     this.out.send(c.sock, `{"t":"pass","ok":${ok ? 1 : 0}}`);
     if (!ok) return;
     c.teacher = true;
-    // 교사가 돌아왔는데 학생 기기가 방장을 맡고 있으면 방장을 교사에게 돌려준다(게임 화면을 보고 있을 때만). 순위는 교사의 기기가 방장일 때만 오르기 때문이다
-    const hostNow = [...this.conns.values()].find(x => x.host);
-    if (hostNow && hostNow !== c && !hostNow.teacher && c.view === 'play') { hostNow.host = false; c.host = true; this.save(hostNow); this.who(); }
     this.saveClass();
     this.tellClass();
     this.tellAsks(c);
@@ -456,6 +456,13 @@ export class RoomCore<S> {
       this.toAll(JSON.stringify({ t: 'room', room: info }), c);
       this.report();
       this.useNow();
+    } else if (t === 'claim') {                        // 교사가 방장을 돌려받는다: 학생 기기가 방장일 때만. 순위는 교사의 기기가 방장일 때만 오르기 때문이다
+      // 출입증을 확인하자마자 넘기지 않고 교사 화면이 청할 때 넘긴다: 게임 도중이면 그 판의 요약을 받은 뒤에 청해야 받은 데서 이어 굴릴 수 있다(바로 넘기면 판이 처음으로 돌아갔다)
+      if (!this.cls || !c.teacher || c.host || c.view !== 'play') return;
+      const hostNow = [...this.conns.values()].find(x => x.host);
+      if (!hostNow || hostNow.teacher) return;
+      hostNow.host = false; c.host = true;
+      this.save(hostNow); this.save(c); this.who();
     } else if (t === 'view') {                         // 게임 화면으로 볼지, 조작기로만 쓸지
       const v = (msg as { v?: unknown }).v;
       if (c.host || (v !== 'play' && v !== 'pad') || v === c.view || now - c.viewAt < 1000) return;   // 바꿀 때마다 모두에게 알리므로 1초에 한 번만
@@ -465,6 +472,7 @@ export class RoomCore<S> {
       const next = [...this.conns.values()].filter(o => o !== c && o.view === 'play').sort((a, b) => a.rank - b.rank)[0];
       if (!next) return;
       c.host = false; next.host = true;
+      if (!next.teacher) this.runOk = false;
       this.save(c); this.save(next); this.who();
     } else if (t === 'hb') {                           // 방장의 살아 있음 알림: 공개 방 목록을 새로 고친다
       if (!c.host) return;

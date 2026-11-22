@@ -90,9 +90,10 @@ export class Room extends DurableObject<Env> {
       pass: (seat, key, pass, setup) => {
         this.ctx.waitUntil(verifyPass(pass, this.env.WORLD_ROOM_SECRET, Math.floor(Date.now() / 1000)).catch(() => null).then(claims => this.core.grant(seat, key, claims, setup)));
       },
-      rank: report => { this.ctx.waitUntil(this.postRank(report)); },
-      agree: a => { this.ctx.waitUntil(this.post('consents', this.env.CONSENTS_URL, { teacher: a.teacher, version: a.version })); },
-      use: use => { this.ctx.waitUntil(this.post('uses', this.env.USES_URL, { packId: use.pack, teacher: use.teacher })); },
+      // 순위와 쓰임은 동의를 적은 뒤에 보낸다(도름스는 동의 줄이 있는 선생님 것만 적는다. 먼저 닿으면 버려진다)
+      rank: report => { this.ctx.waitUntil(this.consent.then(() => this.postRank(report))); },
+      agree: a => { this.consent = this.post('consents', this.env.CONSENTS_URL, { teacher: a.teacher, version: a.version }).catch(() => null); this.ctx.waitUntil(this.consent); },
+      use: use => { this.ctx.waitUntil(this.consent.then(() => this.post('uses', this.env.USES_URL, { packId: use.pack, teacher: use.teacher }))); },
     });
     // 잠들었다 깬 방: 살아 있는 연결에 붙여 둔 값으로 자리와 방 정보를 되살린다
     for (const ws of this.ctx.getWebSockets()) {
@@ -157,6 +158,8 @@ export class Room extends DurableObject<Env> {
     }
     return null;
   }
+  /** 이 방에서 보낸 동의 적기(없으면 이미 끝난 것). */
+  private consent: Promise<unknown> = Promise.resolve();
   private async postRank(r: RankReport) {
     const reply = readRankReply(await this.post('ranks', this.env.RANKS_URL, { packId: r.pack, stage: r.stage, ms: r.ms, players: r.players, title: r.title, teacher: r.teacher }));
     this.core.ranked(r.run, r.ms, reply.rank, reply.best);
