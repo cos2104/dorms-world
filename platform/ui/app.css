@@ -83,6 +83,17 @@ body { word-break: keep-all; overflow-wrap: anywhere; }
 /* 조작 안내는 항목 단위로만 줄을 바꾼다(괄호 속 '들어가기'가 혼자 다음 줄로 가지 않게) */
 .w-keys > span { white-space: nowrap; }
 
+/* 휴대폰 가로: 화면 단추(아래 양 구석)가 판 바닥의 통 · 레버 · 도름이를 덮었다(2026-11-22 실측, 844×390 에서 단추 윗변 302px · 장치 바닥 347px).
+   판을 화면 위에 붙이고 높이를 0.9배로 줄여 아래에 단추 자리를 내고, 단추는 화면 구석에 고정한다. 그래도 남는 겹침은 판을 위로 올려 그린다(render.ts padLift).
+   0.9배는 위쪽 줄(44px)이 가리는 하늘 폭과 올려 그리는 높이를 함께 맞춘 값이다: 풀이 판 네 줄(판 점 161)이 위쪽 줄 밑으로 들어가지 않는다. */
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 520px) {
+  .w-root.w-play { place-items: start center; }
+  .w-root .w-stagebox { width: min(100vw, calc(100dvh * .9 * 16 / 9)); }
+  .w-pad .pad-l, .w-pad .pad-r { position: fixed; bottom: max(10px, env(safe-area-inset-bottom)); }
+  .w-pad .ar-key, .w-pad .act { width: 56px; height: 56px; }
+  .w-pad .jump { width: 64px; height: 64px; }
+}
+
 /* ---------- 교통정리 (2026-11-19) ----------
    오락실 부품 모양은 그대로 두고 배치만 정리한다.
    단추 약속: 화면마다 주 행동 하나만 노랑(.ar-key.mustard), 나머지는 테두리 단추(.ghost), 고르기는 .ghost + aria-pressed. */

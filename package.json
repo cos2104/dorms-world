@@ -13,7 +13,8 @@
     "submit": "node scripts/submit-pack.mjs",
     "submit:code": "node scripts/submit-code.mjs",
     "units": "node scripts/units.mjs",
-    "check:security": "node scripts/security-check.mjs"
+    "check:security": "node scripts/security-check.mjs",
+    "play:bots": "vite-node scripts/bots/cli.ts --"
   },
   "devDependencies": {
     "playwright": "^1.58.2",

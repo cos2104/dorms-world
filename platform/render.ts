@@ -56,10 +56,36 @@ function drawDoreumi(c: CanvasRenderingContext2D, p: Player, now: number) {
   c.drawImage(tinted(p.color), sx, sy, sw, sh, Math.round(p.x + p.w / 2 - sw / 2), Math.round(p.y + p.h - sh + 1 + bob), sw, sh);
 }
 
-export type Camera = { x: number; y: number; scale: number };
+/** lift: 판을 위로 올려 그린 만큼(캔버스 점, 배율과 무관). 휴대폰 가로에서 화면 단추 밑에 바닥 장치가 깔리지 않게 그 아래 흙을 더 보여 준다. */
+export type Camera = { x: number; y: number; scale: number; lift?: number };
+
+/** 바닥 장치가 서는 가장 낮은 땅의 윗면(판 점). 칸마다 맨 위 땅을 찾아 그중 가장 낮은 것(구덩이 칸은 건너뜀). */
+function floorTop(s: Stage) {
+  let low = -1;
+  for (let cc = 0; cc < s.cols; cc++) for (let r = 0; r < s.rows; r++) if (s.solid[r * s.cols + cc]) { low = Math.max(low, r); break; }
+  return (low < 0 ? s.rows : low) * T;
+}
+
+/**
+ * 화면 단추가 판 아래쪽을 덮을 때(휴대폰 가로) 판을 얼마나 올려 그릴지(캔버스 점, 배율 1 로 따라가는 내 화면 기준).
+ * 땅 위 장치와 발밑 알림 글(땅 아래 50점까지)이 단추 윗변보다 6px 위에 오게 한다. 단추가 안 보이면 0.
+ */
+export function padLift(canvas: HTMLCanvasElement, stage: Stage): number {
+  const pad = canvas.parentElement?.querySelector<HTMLElement>('.w-pad');
+  if (!pad || getComputedStyle(pad).display === 'none') return 0;
+  const tops = [...pad.querySelectorAll('button')].map(b => b.getBoundingClientRect()).filter(q => q.width > 0).map(q => q.top);
+  const r = canvas.getBoundingClientRect();
+  if (!tops.length || !r.width) return 0;
+  const top = Math.min(...tops);
+  if (top >= r.bottom) return 0;
+  const f = r.width / VIEW_W;
+  const need = floorTop(stage) + 50 - (stage.rows * T - VIEW_H);   // 올리지 않았을 때 화면 안에서 지켜야 할 가장 낮은 자리
+  const room = (top - r.top - 6) / f;
+  return Math.max(0, Math.min(VIEW_H / 2, Math.ceil(need - room)));
+}
 
 /** 화면이 따라갈 자리. me 가 있으면 내 도름이를, 없으면(함께 보는 큰 화면) 모두가 담기게. */
-export function cameraFor(w: World, me: number | null, prev?: Camera): Camera {
+export function cameraFor(w: World, me: number | null, prev?: Camera, lift = 0): Camera {
   const sw = w.stage.cols * T, sh = w.stage.rows * T;
   const alive = w.players.filter(p => !p.inDoor);
   let scale = 1, cx = sw / 2;
@@ -75,7 +101,7 @@ export function cameraFor(w: World, me: number | null, prev?: Camera): Camera {
   let x = Math.max(0, Math.min(sw - vw, cx - vw / 2));
   if (sw < vw) x = (sw - vw) / 2;
   if (prev) { x = prev.x + (x - prev.x) * 0.15; scale = prev.scale + (scale - prev.scale) * 0.1; }
-  return { x, y: sh - VIEW_H / scale, scale };
+  return { x, y: sh - (VIEW_H - lift) / scale, scale, lift };
 }
 
 function drawStage(c: CanvasRenderingContext2D, w: World, now: number, me: number | null, names?: readonly string[]) {
@@ -305,10 +331,21 @@ function bubble(c: CanvasRenderingContext2D, text: string, x: number, y: number)
 export function render(c: CanvasRenderingContext2D, w: World, cam: Camera, now: number, me: number | null, names?: readonly string[]) {
   c.setTransform(1, 0, 0, 1, 0, 0);
   c.imageSmoothingEnabled = false;
-  c.drawImage(spr('bg'), 0, 0, VIEW_W, VIEW_H);
+  const lift = Math.round(cam.lift ?? 0);
+  if (lift > 0) { c.fillStyle = PALETTE.navy; c.fillRect(0, VIEW_H - lift, VIEW_W, lift); }   // 올려 그린 판의 아래(구덩이 밑)
+  c.drawImage(spr('bg'), 0, -lift, VIEW_W, VIEW_H);   // 하늘·언덕도 판과 함께 올린다
   c.setTransform(cam.scale, 0, 0, cam.scale, -Math.round(cam.x * cam.scale), -Math.round(cam.y * cam.scale));
   drawStage(c, w, now, me, names);
+  if (lift > 0) drawUnderground(c, w.stage, cam);
   c.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+/** 올려 그려 드러난 지도 아래: 맨 아래 줄이 땅인 칸은 흙을 이어 그린다(구덩이 칸은 비워 둔다). */
+function drawUnderground(c: CanvasRenderingContext2D, s: Stage, cam: Camera) {
+  const bottom = cam.y + VIEW_H / cam.scale, last = (s.rows - 1) * s.cols;
+  if (bottom <= s.rows * T) return;
+  const c0 = Math.max(0, Math.floor(cam.x / T)), c1 = Math.min(s.cols - 1, Math.ceil((cam.x + VIEW_W / cam.scale) / T));
+  for (let cc = c0; cc <= c1; cc++) if (s.solid[last + cc]) for (let y = s.rows * T; y < bottom; y += T) c.drawImage(spr('soil'), cc * T, y, T, T);
 }
 
 /** 카드의 맵 미리보기. 같은 그리기 코드로 스테이지 전체를 작게 그린다. */

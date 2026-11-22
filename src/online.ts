@@ -22,7 +22,7 @@ import { PadInput } from '../platform/input';
 import { VIEW_H, VIEW_W } from '../platform/look';
 import { joinRoom, listPublic, type Down, type NickState, type RankNews, type RoomLink } from '../platform/net';
 import { findPack, type Pack } from '../platform/packs';
-import { cameraFor, nearText, render, type Camera } from '../platform/render';
+import { cameraFor, nearText, padLift, render, type Camera } from '../platform/render';
 import { cleanRoomCode, newRoomCode, validRoomCode } from '../platform/room-code';
 import { MAX_SEATS, NOTICE, nextRun, NICK_MAX, TITLE_MAX, cleanNick, cleanTitle, readPass, type PassClaims, type PublicRoom, type RoomInfo } from '../platform/room-rules';
 import { createWorld, removePlayer, setPlayerCount, step, type Pad, type World } from '../platform/sim';
@@ -581,7 +581,7 @@ function teachButton() {
   const l = link;
   if (!l?.teacher || !l.cls) return '';
   const n = l.asks.length;
-  return `<button class="ar-key ghost w-teach-btn" data-teach aria-label="우리 반 보기${n ? `, 닉네임 신청 ${n}건` : ''}">${icon('users', 17)}<span class="w-hide-s">우리 반</span>${n ? `<b class="w-teach-badge">${n}</b>` : ''}</button>`;
+  return `<button class="ar-key ghost w-teach-btn" data-teach aria-label="우리 반 보기${n ? `, 닉네임 신청 ${n}건` : ''}">${icon('roster', 17)}<span class="w-hide-s">우리 반</span>${n ? `<b class="w-teach-badge">${n}</b>` : ''}</button>`;
 }
 function openTeach() { teachOpen = true; paintTeach(); teachEl?.querySelector<HTMLElement>('[data-teach-close]')?.focus(); }
 function paintTeach() {
@@ -740,7 +740,7 @@ function openGame(p: Pack, si: number) {
   const pads = new GuestPads();
   let track: Track = newTrack();
   let cam: Camera | undefined, raf = 0, last = performance.now(), acc = 0, ticks = 0, sent = 0, alive = true;
-  let hintUntil = last + 6000, ended = false, mathText = '', wasHost = l.isHost, hudKey = '', hostSeat = l.host, myA = false;
+  let hintUntil = last + 6000, ended = false, mathText = '', wasHost = l.isHost, hudKey = '', hostSeat = l.host, myA = false, lift = 0, liftAt = -1e9;
 
   host.app.innerHTML = `<main class="arcade-root w-root w-play">
     <div class="w-stagebox"><canvas class="px w-canvas" width="${VIEW_W}" height="${VIEW_H}" aria-label="게임 화면"></canvas>
@@ -847,7 +847,8 @@ function openGame(p: Pack, si: number) {
       blend(world, track, now, dt);
     }
     const me = meIdx();
-    cam = cameraFor(world, world.won || (k.isHost && k.room.big) || me < 0 ? null : me, cam);
+    if (now - liftAt > 500) { liftAt = now; lift = padLift(canvas, stage); }   // 화면 단추가 판 아래를 덮는 만큼 판을 올려 그린다(단추가 없는 큰 화면은 0)
+    cam = cameraFor(world, world.won || (k.isHost && k.room.big) || me < 0 ? null : me, cam, lift);
     render(c, world, cam, now, me >= 0 ? me : null, headNames(k));
     if (now > hintUntil && hintEl.textContent) hintEl.textContent = '';
     const math = hintEl.textContent || world.won ? '' : nearText(world, me >= 0 ? me : null);

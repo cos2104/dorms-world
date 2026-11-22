@@ -1,6 +1,7 @@
 /**
  * 팩 검사(`npm run check:packs`, 빌드 때도 돈다). 모든 팩의 형식과 약속을 본다.
- * 막는 것: 형식 오류, 코드 파일, 바깥 주소, "정답/오답" 문구, 아무렇게나 누르는 봇이 깨 버리는 스테이지.
+ * 막는 것: 형식 오류, 코드 파일, 바깥 주소, "정답/오답" 문구, 아무렇게나 누르는 봇이 깨 버리는 스테이지,
+ * 가장 적은 인원·8명·30명 가운데 봇이 판을 그대로 굴려도 끝까지 못 깨는 스테이지(scripts/bots).
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { resolveNeed, type StageJson } from '../platform/stage';
 import { readSprites, readStage } from './pack-io';
 import { createWorld, step, type Pad } from '../platform/sim';
+import { peopleFor, playStage } from '../scripts/bots/engine';
 
 const root = fileURLToPath(new URL('../packs/', import.meta.url));
 const FAMILIES = ['국어', '영어', '수학', '사회', '역사', '도덕·윤리', '과학', '정보', '기술·가정', '음악', '미술', '연극', '체육', '한문·외국어', '교양', '통합교과', '창의적 체험활동', '기타'];
@@ -92,6 +94,15 @@ describe.each(packs)('팩 $id', ({ id, dir }) => {
         expect(need <= room, `단추 '${b.ch}': 30명일 때 ${need}명이 서야 하는데 ${room}명까지만 설 수 있어요. 단추를 옆으로 더 넓혀 주세요`).toBe(true);
       }
     });
+
+    // 깰 수 있게 만들어졌는지: 봇이 단추 지키기·상자 밀기·저울 풀기·친구 머리 딛기로 끝까지 가 본다.
+    // 봇이 못 하는 길(친구 둘 이상 쌓기 등)만 남으면 통과도 실패도 아닌 '확인 못 함'(건너뜀)으로 남기고 까닭을 적는다.
+    let shared: ReturnType<typeof load> | undefined;   // 인원마다 같은 지도를 써서 봇이 잰 길을 다시 쓴다
+    it.for(peopleFor(meta.players))('%i명이 끝까지 깰 수 있다(봇이 판을 그대로 굴려 본다)', (people, ctx) => {
+      const r = playStage(shared ??= load(), people);
+      if (r.verdict === 'unknown') { console.warn(`[확인 못 함] ${id} 스테이지 ${file} ${r.note}`); ctx.skip(); }
+      expect(r.verdict, `스테이지 ${file} ${r.note}`).toBe('pass');
+    }, 90_000);
 
     it('아무렇게나 누르는 봇은 깨지 못한다', () => {
       let seed = 11; const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);

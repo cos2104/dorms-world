@@ -10,7 +10,7 @@ import { icon } from '../platform/icons';
 import { colorFor } from '../platform/identity';
 import { PadInput } from '../platform/input';
 import { VIEW_H, VIEW_W } from '../platform/look';
-import { cameraFor, loadAssets, nearText, render, renderPreview, type Camera } from '../platform/render';
+import { cameraFor, loadAssets, nearText, padLift, render, renderPreview, type Camera } from '../platform/render';
 import { createWorld, step, NO_PAD, type World } from '../platform/sim';
 import { esc } from '../platform/text';
 import { makeScreen } from './make';
@@ -142,13 +142,13 @@ function play(p: Pack, si: number, people: number, review: Review | null = null)
   const stage = p.stageData[si];
   const colors = Array.from({ length: people }, (_, i) => colorFor(i));
   let world: World = createWorld(stage, colors.map(color => ({ color })), (Date.now() % 1000003) + 1);   // 저울의 식은 할 때마다 새로 뽑는다
-  let mine = 0, cam: Camera | undefined, raf = 0, last = performance.now(), acc = 0, hintUntil = last + 6000, shown = false, mathText = '';
+  let mine = 0, cam: Camera | undefined, raf = 0, last = performance.now(), acc = 0, hintUntil = last + 6000, shown = false, mathText = '', lift = 0, liftAt = -1e9;
 
   app.innerHTML = `<main class="arcade-root w-root w-play">
     <div class="w-stagebox"><canvas class="px w-canvas" width="${VIEW_W}" height="${VIEW_H}" aria-label="게임 화면"></canvas>
       <div class="lab-hud w-hud">
         <div class="w-hud-l"><span class="ar-count w-hide-s">연습</span><span class="ar-count">${icon('users', 14)}<span><span class="lab-num">${people}</span>명</span></span><span class="grow ar-kicker w-hudtitle"><span class="w-hide-s">${esc(p.name)} </span>${String(si + 1).padStart(2, '0')} ${esc(p.stages[si].name)}</span></div>
-        <div class="w-hud-r"><button class="ar-key ghost" data-retry aria-label="처음부터 다시 하기">${icon('redo', 17)}<span class="w-hide-s">다시 하기</span></button><button class="ar-key ghost" data-swap aria-label="다음 도름이로 바꾸기">${icon('swap', 17)}<span class="w-hide-s">도름이 바꾸기</span></button><button class="ar-key ghost" data-all aria-pressed="false" aria-label="모든 도름이를 같이 움직이기">${icon('users', 17)}<span class="w-hide-s">다 같이</span></button><button class="ar-key ghost" data-exit aria-label="나가기">${icon('door', 17)}<span class="w-hide-s">나가기</span></button></div>
+        <div class="w-hud-r"><button class="ar-key ghost" data-retry aria-label="처음부터 다시 하기">${icon('redo', 17)}<span class="w-hide-s">다시 하기</span></button><button class="ar-key ghost" data-swap aria-label="다음 도름이로 바꾸기">${icon('swap', 17)}<span class="w-hide-s">도름이 바꾸기</span></button><button class="ar-key ghost" data-all aria-pressed="false" aria-label="모든 도름이를 같이 움직이기">${icon('link', 17)}<span class="w-hide-s">다 같이</span></button><button class="ar-key ghost" data-exit aria-label="나가기">${icon('door', 17)}<span class="w-hide-s">나가기</span></button></div>
       </div>
       <p class="w-hint" role="status"></p>
       <p class="w-math" aria-live="polite" hidden></p>
@@ -192,7 +192,8 @@ function play(p: Pack, si: number, people: number, review: Review | null = null)
     acc = Math.min(acc + (now - last) / 1000, 0.1); last = now;
     while (acc >= 1 / 60) { const now = pad.read(), pads = world.players.map((_, i) => (together || i === mine ? now : NO_PAD)); step(world, pads, 1 / 60); acc -= 1 / 60; }
     if (world.players[mine]?.inDoor && !world.won) swap();
-    cam = cameraFor(world, world.won ? null : mine, cam);
+    if (now - liftAt > 500) { liftAt = now; lift = padLift(canvas, stage); }   // 화면 단추가 판 아래를 덮는 만큼 판을 올려 그린다(화면을 돌리면 다시 잰다)
+    cam = cameraFor(world, world.won ? null : mine, cam, lift);
     render(c, world, cam, now, mine);
     if (now > hintUntil && hintEl.textContent) hintEl.textContent = '';
     // 가까운 저울의 식과 지금 할 수 있는 일(좁은 세로 화면에서만 보인다. 첫 안내가 떠 있는 동안은 자리를 비켜 준다)
@@ -206,7 +207,7 @@ function play(p: Pack, si: number, people: number, review: Review | null = null)
   raf = requestAnimationFrame(frame);
   stop = () => { cancelAnimationFrame(raf); window.removeEventListener('keydown', onKey); pad.dispose(); };
   // 시험 도구가 상태를 읽을 수 있게(개발 중에만).
-  if (import.meta.env.DEV) (window as unknown as { __world: () => World }).__world = () => world;
+  if (import.meta.env.DEV) Object.assign(window as unknown as object, { __world: () => world, __cam: () => cam });
 }
 
 // ---------- 주소 ----------

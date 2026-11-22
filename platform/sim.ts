@@ -304,6 +304,10 @@ function tick(w: World, pads: (Pad | undefined)[], dt: number) {
         p.on = true;
         let y = p.y;
         while (y < ny && !blocked(w, { x: p.x, y: y + 1, w: p.w, h: p.h }, inside) && !(onHead && y + 1 + p.h > under!.y)) y += 1;
+        // 1px 걸음으로 다가가면 1px 안쪽 틈이 남는다. 땅·다리·상자 윗면은 정수 자리라 발을 그 면에, 친구 머리 위면 머리에 딱 붙인다.
+        // 떠 있는 틈이 사람마다 달라서 머리 위 친구가 옆에서 다가오는 사람과 '겹친다'고 잘못 판정되던 것을 막는다.
+        const snap = onHead ? under!.y - p.h : Math.ceil(y + p.h - 1e-6) - p.h;
+        if (snap > y && snap - y < 1 + 1e-6 && !blocked(w, { x: p.x, y: snap, w: p.w, h: p.h }, inside) && !(onHead ? false : otherAt(w, p, { x: p.x, y: snap, w: p.w, h: p.h }))) y = snap;
         p.y = y;
       }
       p.vy = 0;
@@ -421,10 +425,12 @@ function pushers(w: World, ci: number, d: -1 | 1): Player[] {
   const vert = (a: Rect, c: Rect) => a.y + a.h > c.y + 2 && a.y < c.y + c.h - 2;
   const front = (p: Player) => (d > 0 ? p.x + p.w : p.x), back = (p: Player) => (d > 0 ? p.x : p.x + p.w);
   const edge = d > 0 ? b.x : b.x + b.w;
-  const chain = cand.filter(p => vert(p, b) && Math.abs(front(p) - edge) <= GAP);
+  // 상자 위에 선 친구가 미는 쪽 끝으로 걸쳐 있으면 그 친구의 몸이 상자 면 앞을 막는다. 그 친구 등에 붙어 누르는 사람도 상자를 미는 것으로 센다.
+  const riders = w.players.filter(p => !p.inDoor && p.on && Math.abs(p.y + p.h - b.y) < 2 && (d > 0 ? p.x < b.x && p.x + p.w > b.x : p.x + p.w > b.x + b.w && p.x < b.x + b.w));
+  const chain = cand.filter(p => !riders.includes(p) && (vert(p, b) && Math.abs(front(p) - edge) <= GAP || riders.some(r => vert(p, r) && Math.abs(front(p) - back(r)) <= GAP)));
   for (let grew = true; grew;) {
     grew = false;
-    for (const q of cand) if (!chain.includes(q) && chain.some(s => vert(q, s) && Math.abs(front(q) - back(s)) <= GAP)) { chain.push(q); grew = true; }
+    for (const q of cand) if (!chain.includes(q) && !riders.includes(q) && chain.some(s => vert(q, s) && Math.abs(front(q) - back(s)) <= GAP)) { chain.push(q); grew = true; }
   }
   return chain;
 }
