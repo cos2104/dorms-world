@@ -512,6 +512,17 @@ if (!flag('only-shots') && ownRoom) {
   ok('게임 도중에 돌아온 선생님이 방장을 돌려받아도 판이 처음으로 돌아가지 않는다(학생이 걸어간 자리 그대로, 도름이 셋)',
     !!again && far > start + 40 && seenByS1 > far - 30 && seenByT > far - 30 && afterWorld.n === 3,
     JSON.stringify({ start, far, seenByS1, seenByT, n: afterWorld.n }));
+  // 방장을 맡은 기기가 요약을 보내지 않아도(멎었거나 일부러) 선생님은 방장을 돌려받는다: 2.5초 기다린 뒤 스테이지를 처음부터 다시 연다
+  const mute = await ghost(code, { send: false });
+  await S1.page.goto('about:blank'); await S2.page.goto('about:blank'); await T.page.goto('about:blank');
+  const muteHost = await until(async () => mute.log.some(m => m.t === 'who' && m.host === mute.seat), 6000);
+  const runBefore = mute.log.filter(m => m.t === 'room').at(-1)?.room?.run ?? -1;
+  await T.open(`?room=${code}`);
+  const trace = [], t0 = Date.now(); let lastKey = '';
+  const took = await until(async () => { const r = await T.room(), w = await T.world().catch(() => null); const key = JSON.stringify([r?.teacher, r?.isHost, r?.host, r?.room?.run, r?.shown, w?.n]); if (key !== lastKey) { lastKey = key; trace.push(`${Date.now() - t0}ms ${key}`); } return r?.teacher && r.isHost && r.room.stage === 0 && w?.n === 2 && Date.now() - t0 > 6000 ? r : null; }, 12000, 60);
+  if (process.env.NET_DEBUG) console.log('TRACE', trace.join(' | '), '| mute who/room:', JSON.stringify(mute.log.filter(m => m.t === 'who' || m.t === 'room').slice(-6).map(m => m.t === 'who' ? ['who', m.host] : ['room', m.room.run, m.room.stage])));
+  ok('요약을 보내지 않는 기기가 방장이어도 선생님이 방장을 돌려받고 스테이지를 다시 연다', !!muteHost && !!took && took.room.run > runBefore, JSON.stringify({ muteHost: !!muteHost, run: took?.room.run, runBefore }));
+  mute.ws.close();
   await T.close(); await S1.close(); await S2.close();
 
   // 학생끼리 연 방: 방 제목도 닉네임도 순위도 없다

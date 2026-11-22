@@ -100,6 +100,8 @@ const LOGIN_URL = 'https://dorms.school/login?next=/world';
 const TEACHING_KEY = 'dorms-world.teaching', PASS_OLD = '선생님 확인 시간이 지났어요. dorms.school/world 를 다시 열고 이 방 코드로 들어와 주세요.';
 /** 이 기기가 그 방에서 선생님으로 확인된 적이 있는가(이 탭이 떠 있는 동안). */
 const taughtHere = (code: string) => { try { return sessionStorage.getItem(TEACHING_KEY) === code; } catch { return false; } };
+const CLAIM_WAIT = 2500;
+let claimWait = 0;   // 요약을 기다리기 시작한 때(0 이면 기다리지 않는 중)
 let claimAt = -1e9;   // 화면이 막 떴을 때(시계가 2초도 안 됐을 때)도 첫 청은 바로 나가야 한다
 /**
  * 내 선생님 방인데 학생 기기가 방장이면 방장을 돌려받는다(순위는 선생님 기기가 방장일 때만 오른다).
@@ -108,10 +110,15 @@ let claimAt = -1e9;   // 화면이 막 떴을 때(시계가 2초도 안 됐을 �
  */
 function tryClaim(ready: boolean) {
   const l = link, now = performance.now();
-  if (!l || !l.teacher || !l.cls || l.isHost || l.host < 0 || l.cls.teachers.includes(l.host) || document.hidden || l.viewOf(l.me) !== 'play') return;
-  if (l.room.stage >= 0 && !ready) return;
+  if (!l || !l.teacher || !l.cls || l.isHost || l.host < 0 || l.cls.teachers.includes(l.host) || document.hidden || l.viewOf(l.me) !== 'play') { claimWait = 0; return; }
+  // 게임이 열려 있으면 요약을 기다리되 2.5초까지만: 방장을 맡은 기기가 요약을 보내지 않아도(멎었거나 일부러) 선생님은 방장을 돌려받는다. 그때는 스테이지를 처음부터 다시 연다
+  // (내 화면에 게임이 아직 안 열렸어도 기다린다: 팩을 불러오는 사이에 청하면 요약 없이 방장이 되어 판이 처음으로 돌아간다)
+  if (l.room.stage >= 0 && !ready) {
+    if (!claimWait) { claimWait = now; setTimeout(() => tryClaim(false), CLAIM_WAIT + 60); return; }
+    if (now - claimWait < CLAIM_WAIT) return;
+  }
   if (now - claimAt < 2000) return;
-  claimAt = now; l.claimHost();
+  claimAt = now; claimWait = 0; l.claimHost();
 }
 // 선생님 방 안내에 동의했는지: 출입증에 적혀 있거나(도름스에 남은 기록), 이 기기에서 방금 동의했거나
 const NOTICE_KEY = 'dorms-world.notice';
@@ -810,8 +817,10 @@ function openGame(p: Pack, si: number) {
       wasHost = k.isHost;
       // 방장이 됐다: 마지막 요약에서 이어서 굴린다. 그 요약에 남아 있는 나간 사람의 도름이는 지금 차례에 맞춰 뺀다
       if (k.isHost) {
-        if (track.b && applyWire(world, track.b)) mine.reorder(wireSeats(track.b), k.room.order);
-        sent = Math.min(Math.max(sent, track.b?.n ?? 0), 1e9);   // 요약의 차례 번호는 앞 방장의 것에 이어서 센다(터무니없이 큰 번호는 잇지 않는다)
+        // 요약을 한 번도 받지 못한 채 방장이 됐다(앞 방장이 보내지 않았다): 이어 굴릴 상태가 없으니 이 스테이지를 모두 함께 처음부터 다시 연다
+        if (!track.b) { start(p, si); return; }
+        if (applyWire(world, track.b)) mine.reorder(wireSeats(track.b), k.room.order);
+        sent = Math.min(Math.max(sent, track.b.n), 1e9);   // 요약의 차례 번호는 앞 방장의 것에 이어서 센다(터무니없이 큰 번호는 잇지 않는다)
         reconcile(); acc = 0;
       }
       track = newTrack();                                 // 손님들의 조작은 방장이 바뀐 것을 안 그때(sync) 비웠다: 여기서 또 비우면 그새 다시 온 조작을 잃는다
