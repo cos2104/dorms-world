@@ -94,3 +94,12 @@
   .w-root.w-dialog .w-nick-how { margin-bottom: .5rem; }
   .w-root.w-dialog:has(#w-nick) .lab-actions { padding-top: .6rem; }
 }
+
+/* 선생님 방 안내와 동의(선생님 방을 처음 여는 선생님께만 뜬다) */
+.w-root .w-notice { margin: 0 0 1rem; padding: .8rem .9rem; border: 2px solid rgba(57,120,206,0.45); border-radius: 12px; background: #F4F7FF; color: #14285F; }
+.w-root .w-notice-list { margin: .2rem 0 .6rem; padding-left: 1.1rem; display: grid; gap: .3rem; font-family: "Noto Sans KR", system-ui, sans-serif; font-size: .82rem; line-height: 1.55; }
+.w-root .w-agree { display: inline-flex; align-items: center; gap: .5rem; min-height: 44px; font-family: "Noto Sans KR", system-ui, sans-serif; font-weight: 700; font-size: .9rem; cursor: pointer; }
+.w-root .w-agree input { width: 20px; height: 20px; accent-color: #14285F; }
+.w-root .w-agree-note { min-height: 0; margin: .1rem 0 0; }
+.w-root .w-make-teacher.is-off { opacity: .55; }
+.w-root .w-asks-care { margin: 0 0 .4rem; font-family: "Noto Sans KR", system-ui, sans-serif; }

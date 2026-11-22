@@ -21,7 +21,7 @@ const SECRET = 'test-secret-0123456789abcdef0123456789', TEACHER = '11111111-222
 const b64 = b => Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 function makePass(claims = {}, secret = SECRET) {
   const now = Math.floor(Date.now() / 1000);
-  const body = b64(JSON.stringify({ u: TEACHER, n: '창욱쌤', a: 1, iat: now - 60, exp: now - 60 + 12 * 3600, ...claims }));
+  const body = b64(JSON.stringify({ u: TEACHER, n: '창욱쌤', a: 1, iat: now - 60, exp: now - 60 + 12 * 3600, c: 1, ...claims }));
   return `v1.${body}.${b64(createHmac('sha256', secret).update(`v1.${body}`).digest())}`;
 }
 let SITE = arg('site'), ROOM = arg('room');
@@ -37,7 +37,7 @@ function up(cmd, argv, cwd, env = {}) {
 }
 const ownRoom = !ROOM, ownSite = !SITE;
 // 도름스 흉내 서버: 방 서버가 순위와 쓰임을 적는 곳. 받은 것을 적어 두고, 화면이 순위를 읽을 때도 이것으로 답한다
-const dorms = { ranks: [], uses: [], denied: 0 };
+const dorms = { ranks: [], uses: [], consents: [], denied: 0 };
 const mock = createServer((req, res) => {
   let body = '';
   req.on('data', d => { body += d; });
@@ -47,13 +47,14 @@ const mock = createServer((req, res) => {
     if (!ok || !json) { dorms.denied++; res.writeHead(401).end('{}'); return; }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     if (req.url === '/ranks') { dorms.ranks.push(json); res.end(JSON.stringify({ ok: true, rank: dorms.ranks.filter(r => r.packId === json.packId && r.stage === json.stage && r.ms <= json.ms).length, best: true })); }
+    else if (req.url === '/consents') { dorms.consents.push(json); res.end(JSON.stringify({ ok: true })); }
     else { dorms.uses.push(json); res.end(JSON.stringify({ ok: true, first: true })); }
   });
 });
 if (ownRoom) await new Promise(r => mock.listen(MOCK_PORT, '127.0.0.1', r));
 // 방 서버는 시험용 값으로 띄운다. gate 가 false 면 주소마다의 횟수 제한을 끈다(이 시험은 한 주소에서 방을 잇달아 만든다)
 const roomUp = (gate = false) => up(`${root}room-server/node_modules/.bin/wrangler`, ['dev', '--port', String(ROOM_PORT), '--inspector-port', String(ROOM_PORT + 540), '--ip', '127.0.0.1',
-  '--var', `WORLD_ROOM_SECRET:${SECRET}`, '--var', `RANKS_URL:http://127.0.0.1:${MOCK_PORT}/ranks`, '--var', `USES_URL:http://127.0.0.1:${MOCK_PORT}/uses`, '--var', `GATE_OFF:${gate ? '0' : '1'}`], `${root}room-server`, { WRANGLER_SEND_METRICS: 'false' });
+  '--var', `WORLD_ROOM_SECRET:${SECRET}`, '--var', `RANKS_URL:http://127.0.0.1:${MOCK_PORT}/ranks`, '--var', `USES_URL:http://127.0.0.1:${MOCK_PORT}/uses`, '--var', `CONSENTS_URL:http://127.0.0.1:${MOCK_PORT}/consents`, '--var', `GATE_OFF:${gate ? '0' : '1'}`], `${root}room-server`, { WRANGLER_SEND_METRICS: 'false' });
 let roomKid = null, BARE = '';
 if (ownRoom) { ROOM = `http://127.0.0.1:${ROOM_PORT}`; roomKid = roomUp(); await waitFor(`${ROOM}/`, '방 서버'); }
 if (ownSite) {
@@ -487,7 +488,7 @@ if (!flag('only-shots') && ownRoom) {
   await until(async () => (await S2.room()).myAsk === '상어');
   await T.open(`?room=${code}`);
   const back = await until(async () => { const r = await T.room(); return r?.teacher && JSON.stringify(r.asks) === '[[2,"상어"]]' ? r : null; }, 8000);
-  ok('선생님이 출입증으로 다시 들어오면 쌓인 신청이 보이고 승인할 수 있다', !!back && back.isHost === false && await T.page.locator('.w-teach .w-ask').count() === 1);
+  ok('선생님이 출입증으로 다시 들어오면 쌓인 신청이 보이고 승인할 수 있다', !!back && back.isHost === true && await T.page.locator('.w-teach .w-ask').count() === 1);   // 돌아온 선생님은 방장을 돌려받는다(순위는 선생님의 기기가 방장일 때만 오른다)
   await T.page.locator('.w-teach [data-judge="yes"]').first().click();
   ok('돌아온 선생님의 승인이 모두에게 닿는다', !!(await until(async () => (await S1.room()).names.some(n => n[1] === '상어') && (await S2.room()).names.some(n => n[1] === '상어'))));
   await T.close(); await S1.close(); await S2.close();
@@ -505,10 +506,32 @@ if (!flag('only-shots') && ownRoom) {
   ok('학생끼리 연 방은 순위에도 쓰임 알림에도 닿지 않고, 끝 창에 순위 줄이 없다', dorms.ranks.length === before && dorms.uses.length === usesBefore && await K.page.locator('.w-end .w-rankline:not([hidden])').count() === 0);
   kid.close(); await K.close(); await K2.close();
 
+  // 선생님 방 안내: 동의 기록이 없는 선생님은 방 만들기 창에서 안내를 보고 동의해야 선생님 방이 열린다
+  const N = await device('처음 여는 선생님', { w: 1440, h: 900 });
+  await N.open(`#pass=${makePass({ c: 0, u: '77777777-2222-4333-8444-555555555555', n: '새쌤' })}`);
+  await N.page.getByRole('button', { name: '방 만들기' }).first().click();
+  await N.page.waitForSelector('.w-dialog .w-notice');
+  ok('동의 기록이 없는 선생님에게는 안내가 뜨고, 동의 전에는 방 제목 칸을 쓸 수 없다', await N.page.locator('.w-dialog #w-title').isDisabled() && (await N.page.locator('.w-dialog .w-notice').innerText()).includes('개인정보를 적지 않게'));
+  if (flag('shots')) await N.shot('notice', 'teacher');
+  await N.page.locator('.w-dialog [data-make]').click(); await N.page.waitForSelector('.w-dialog [data-code]'); await N.page.locator('.w-dialog [data-done]').click();
+  await sleep(900);
+  ok('동의하지 않고 만들면 보통 방으로 열린다(선생님 방이 아니다)', !(await N.room()).cls && dorms.consents.length === 0);
+  await N.page.locator('[data-leave]').first().click(); await sleep(500);
+  await N.page.getByRole('button', { name: '방 만들기' }).first().click(); await N.page.waitForSelector('.w-dialog .w-notice');
+  await N.page.locator('.w-dialog #w-agree').check();
+  await N.page.locator('.w-dialog #w-title').fill('새 반');
+  await N.page.locator('.w-dialog [data-make]').click(); await N.page.waitForSelector('.w-dialog [data-code]'); await N.page.locator('.w-dialog [data-done]').click();
+  const agreed = await until(async () => { const r = await N.room(); return r?.cls?.title === '새 반' && dorms.consents.length === 1 ? r : null; }, 8000);
+  ok('동의하고 만들면 선생님 방이 열리고 동의가 도름스에 적힌다', !!agreed && dorms.consents[0].teacher === '77777777-2222-4333-8444-555555555555' && dorms.consents[0].version === 1);
+  await N.page.locator('[data-leave]').first().click(); await sleep(500);
+  await N.page.getByRole('button', { name: '방 만들기' }).first().click(); await N.page.waitForSelector('.w-dialog [data-make]');
+  ok('한 번 동의한 기기에서는 다시 묻지 않는다', await N.page.locator('.w-dialog .w-notice').count() === 0);
+  await N.close();
+
   // 변조되거나 기한이 지난 출입증
   const [v, body, sig] = makePass().split('.');
   const now = Math.floor(Date.now() / 1000);
-  const forged = `${v}.${b64(JSON.stringify({ u: '99999999-2222-4333-8444-555555555555', n: '가짜쌤', a: 1, iat: now - 60, exp: now + 3600 }))}.${sig}`;
+  const forged = `${v}.${b64(JSON.stringify({ u: '99999999-2222-4333-8444-555555555555', n: '가짜쌤', a: 1, iat: now - 60, exp: now + 3600, c: 1 }))}.${sig}`;
   const F = await device('변조된 출입증', { w: 1440, h: 900 });
   await F.open(`#pass=${forged}`);
   const fcode = await createRoom(F, { title: '가짜 방', rank: true });

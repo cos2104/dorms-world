@@ -90,7 +90,9 @@ export const cleanTitle = (x: unknown) => cleanLine(x, TITLE_MAX);
  *   v1.<base64url(JSON)>.<base64url(HMAC-SHA256(비밀값, "v1." + 앞의 base64url))>   (base64url 은 채움 글자 없이)
  *   JSON: { u 회원 번호, n 공개 닉네임, a 사진 있음 1 / 없음 0, iat 만든 때(초), exp 끝나는 때(초, iat + 12시간) }
  */
-export type PassClaims = { u: string; n: string; a: 0 | 1; iat: number; exp: number };
+export type PassClaims = { u: string; n: string; a: 0 | 1; iat: number; exp: number; c: number };
+/** 선생님 방 안내의 판 번호. 선생님 방을 처음 열 때 그 자리에서 무엇이 처리되는지 알리고 동의를 받는다(형 지시 2026-11-22). 안내 글이 바뀌면 올린다. */
+export const NOTICE = 1;
 const PASS_RE = /^v1\.([A-Za-z0-9_-]{16,700})\.([A-Za-z0-9_-]{43})$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PASS_TTL = 12 * 3600;
@@ -116,7 +118,7 @@ export function readPass(pass: unknown, nowSec: number): PassClaims | null {
   const n = typeof o.n === 'string' ? cleanLine(o.n.slice(0, 80), 80) : '';
   if (typeof o.u !== 'string' || !UUID.test(o.u) || !n) return null;
   if (!int(o.iat, 0, 4e9) || !int(o.exp, 0, 4e9) || o.exp <= nowSec || o.iat > nowSec + 300 || o.exp - o.iat > PASS_TTL + 600) return null;
-  return { u: o.u, n: [...n].slice(0, 40).join(''), a: o.a === 1 ? 1 : 0, iat: o.iat, exp: o.exp };
+  return { u: o.u, n: [...n].slice(0, 40).join(''), a: o.a === 1 ? 1 : 0, iat: o.iat, exp: o.exp, c: int(o.c, 0, 1000) ? (o.c as number) : 0 };
 }
 /** 출입증의 서명과 기한을 확인한다. 비밀값이 없거나 32자가 안 되면 어떤 출입증도 받지 않는다. */
 export async function verifyPass(pass: unknown, secret: string | null | undefined, nowSec: number): Promise<PassClaims | null> {
@@ -173,7 +175,7 @@ export function readRankReply(x: unknown): { rank: number; best: boolean } {
  * 방 서버가 도름스에 적는 주소. 환경 값으로 바꿀 수 있는 것은 이 컴퓨터의 주소뿐이다(로컬 시험의 흉내 서버).
  * 그 밖의 값은 무시하고 운영 주소를 쓴다: 잘못 넣은 환경 값 때문에 비밀값이 다른 곳으로 가지 않게.
  */
-export function dormsUrl(kind: 'ranks' | 'uses', override?: string | null): string {
+export function dormsUrl(kind: 'ranks' | 'uses' | 'consents', override?: string | null): string {
   return override && /^http:\/\/(localhost|127\.0\.0\.1):\d{2,5}\/[\w./-]*$/.test(override) ? override : `https://dorms.school/api/world/${kind}`;
 }
 
@@ -207,7 +209,9 @@ export type Out<S> = {
   /** 연결 두드리기('ping')에 마지막으로 답한 때(밀리초). 모르면 0. 방을 깨우지 않고 오가는 것이라 방은 이 값으로만 안다. */
   pinged?(sock: S): number;
   /** 출입증을 받았다. 서명을 확인한 뒤 grant() 를 불러 준다(확인은 시간이 걸려 방 밖에서 한다). 없으면 어떤 출입증도 받지 않는다. */
-  pass?(seat: number, key: number, pass: string, setup: { title: string; rank: boolean }): void;
+  pass?(seat: number, key: number, pass: string, setup: { title: string; rank: boolean; agree: boolean }): void;
+  /** 선생님이 선생님 방 안내에 동의했다(도름스에 적어 둔다). */
+  agree?(report: { teacher: string; version: number }): void;
   /** 순위에 올릴 기록. 도름스에 적은 뒤 ranked() 를 불러 준다. */
   rank?(report: RankReport): void;
   /** 교사 방에서 어떤 팩이 처음 열렸다. */
@@ -231,6 +235,7 @@ export class RoomCore<S> {
   private clock = 0;          // 마지막으로 본 때(밀리초)
   private cls: Klass | null = null;      // 교사 방이면 그 정보(보통 방은 null)
   private runAt = 0;                     // 지금 판이 열린 때(밀리초). 모르면 0
+  private runOk = false;                 // 지금 판을 교사의 기기가 열었는가(그런 판만 순위에 오른다)
   private used = new Set<string>();      // 이 방에서 열어 본 팩(쓰임 알림은 팩마다 한 번, 한 방에서 열두 팩까지)
   private rankTimes: number[] = [];      // 지난 1분 동안 순위를 올린 때들
   private rankedIds = new Set<string>();    // 순위에 올린 (팩|스테이지|판)
@@ -271,7 +276,7 @@ export class RoomCore<S> {
       maker: s.maker === true, teacher: s.teacher === true, nick: cleanNick(s.nick), ask: cleanNick(s.ask), askAt: 0, passAt: 0,
     });
     this.nextKey = Math.max(this.nextKey, s.key + 1); this.nextRank = Math.max(this.nextRank, s.rank + 1);
-    if (s.host && s.info) { this.info = cleanRoomInfo(s.info) ?? this.info; this.runAt = int(s.at, 0, Number.MAX_SAFE_INTEGER) ? s.at : 0; }
+    if (s.host && s.info) { this.info = cleanRoomInfo(s.info) ?? this.info; this.runAt = int(s.at, 0, Number.MAX_SAFE_INTEGER) ? s.at : 0; this.runOk = !!s.teacher; }
     if (s.cls && (!this.cls || s.host)) this.cls = cleanKlass(s.cls) ?? this.cls;
   }
 
@@ -346,7 +351,7 @@ export class RoomCore<S> {
     if (no) return this.refuse(sock, no[0], no[1]);
     const same = q.id ? [...this.conns.values()].find(c => c.id === q.id) : undefined;
     const first = this.conns.size === 0;
-    if (first) { this.code = code; this.info = emptyRoom(q.pub, q.big); this.told = ''; this.cls = null; this.runAt = 0; this.rankTimes = []; this.rankedIds.clear(); this.used.clear(); }
+    if (first) { this.code = code; this.info = emptyRoom(q.pub, q.big); this.told = ''; this.cls = null; this.runAt = 0; this.runOk = false; this.rankTimes = []; this.rankedIds.clear(); this.used.clear(); }
 
     let conn: Conn<S>;
     if (same) {
@@ -390,16 +395,21 @@ export class RoomCore<S> {
    * 방을 만든 연결의 출입증이면 이 방이 교사 방이 되고, 이미 교사 방이면 같은 교사의 출입증만 교사 연결로 받는다.
    * 출입증은 방에 묶이지 않는다: 한 교사가 여러 방을 열 수 있다. 다만 남이 연 방을 출입증으로 차지할 수는 없다.
    */
-  grant(seat: number, key: number, claims: PassClaims | null, setup: { title: string; rank: boolean }, now = Date.now()) {
+  grant(seat: number, key: number, claims: PassClaims | null, setup: { title: string; rank: boolean; agree?: boolean }, now = Date.now()) {
     const c = this.conns.get(seat);
     if (!c || c.key !== key) return;
     this.clock = Math.max(this.clock, now);
     let ok = false;
-    if (claims && !this.cls && c.maker) { this.cls = { u: claims.u, n: claims.n, title: setup.title, rank: setup.rank && !!setup.title, done: -1, big: this.info.big }; ok = true; }
+    // 선생님 방은 안내에 동의한 선생님만 연다(전에 동의해 출입증에 적혀 있거나, 지금 동의했거나). 아니면 보통 방으로 남는다
+    const agreed = !!claims && (claims.c >= NOTICE || setup.agree === true);
+    if (claims && !this.cls && c.maker && agreed) { if (claims.c < NOTICE) this.out.agree?.({ teacher: claims.u, version: NOTICE }); this.cls = { u: claims.u, n: claims.n, title: setup.title, rank: setup.rank && !!setup.title, done: -1, big: this.info.big }; ok = true; }
     else if (claims && this.cls && this.cls.u === claims.u) ok = true;
     this.out.send(c.sock, `{"t":"pass","ok":${ok ? 1 : 0}}`);
     if (!ok) return;
     c.teacher = true;
+    // 교사가 돌아왔는데 학생 기기가 방장을 맡고 있으면 방장을 교사에게 돌려준다(게임 화면을 보고 있을 때만). 순위는 교사의 기기가 방장일 때만 오르기 때문이다
+    const hostNow = [...this.conns.values()].find(x => x.host);
+    if (hostNow && hostNow !== c && !hostNow.teacher && c.view === 'play') { hostNow.host = false; c.host = true; this.save(hostNow); this.who(); }
     this.saveClass();
     this.tellClass();
     this.tellAsks(c);
@@ -441,7 +451,7 @@ export class RoomCore<S> {
       if (!info) return;
       const was = this.info;
       this.info = info;
-      if (info.stage >= 0 && (info.run !== was.run || info.pack !== was.pack || info.stage !== was.stage)) this.runAt = now;   // 새 판이 열렸다
+      if (info.stage >= 0 && (info.run !== was.run || info.pack !== was.pack || info.stage !== was.stage)) { this.runAt = now; this.runOk = !!c.teacher; }   // 새 판이 열렸다(교사의 기기가 연 판만 순위에 오른다)
       this.save(c);
       this.toAll(JSON.stringify({ t: 'room', room: info }), c);
       this.report();
@@ -466,7 +476,7 @@ export class RoomCore<S> {
       if (typeof o.v !== 'string' || o.v.length > PASS_MAX || (c.passAt && now - c.passAt < PASS_GAP)) return;
       c.passAt = now || 1;
       if (!this.out.pass) { this.out.send(c.sock, '{"t":"pass","ok":0}'); return; }
-      this.out.pass(seat, key, o.v, { title: cleanTitle(o.title), rank: o.rank === 1 });
+      this.out.pass(seat, key, o.v, { title: cleanTitle(o.title), rank: o.rank === 1, agree: (o as { agree?: unknown }).agree === NOTICE });
     } else if (t === 'name') {                         // 닉네임 신청: 교사 방에서만, 연결마다 10초에 한 번. 교사가 승인해야 보인다
       if (!this.cls) return;                           // 학생끼리 연 방에는 닉네임이 없다
       const v = cleanNick((msg as { v?: unknown }).v);
@@ -491,14 +501,14 @@ export class RoomCore<S> {
       this.tellAsks();
     } else if (t === 'won') {                          // 방장: 스테이지를 다 함께 깼다. 교사 방이고 순위에 올리기가 켜져 있을 때만 도름스에 적는다
       const k = this.cls, o = msg as { r?: unknown; ms?: unknown }, { pack, stage, run } = this.info;
-      if (!c.host || !k?.rank || !k.title || !this.out.rank) return;
+      // 순위를 알릴 수 있는 것은 교사의 기기가 방장일 때뿐이다. 판이 열린 때도 걸린 시간도 방장의 글에 기대므로, 그 방장이 로그인한 교사 본인이어야 기록을 믿을 수 있다(보안 검토 2026-11-22). 교사 화면이 내려가 학생 기기가 방장을 넘겨받은 동안의 기록은 올리지 않는다
+      if (!c.host || !c.teacher || !this.runOk || !k?.rank || !k.title || !this.out.rank) return;
+      if (k.done === run) return;   // 같은 판은 한 번만. 이 값은 방이 잠들었다 깨도 남는다(메모리의 rankedIds 는 사라진다)
       // 지금 열려 있는 판만. 팩 · 스테이지는 방장이 준 값이라 모양과 범위를 다시 본다(실린 팩인지는 도름스가 본다)
       if (!int(o.r, 0, 1_000_000_000) || o.r !== run || !PACK_ID.test(pack) || !int(stage, 0, RANK.stages - 1)) return;
       // 걸린 시간은 방 서버가 잰다. 방장이 알린 시간은 그것과 양쪽으로 가까울 때만 받는다(실제보다 짧게 알려 순위를 꾸미지 못한다)
       const took = this.runAt ? now - this.runAt : -1;
       if (!int(took, RANK.min, RANK.max) || !int(o.ms, RANK.min, RANK.max) || o.ms > took + RANK.slack || o.ms < took - RANK.under) return;
-      // 교사가 방에 있을 때만(교사가 연 방이라도 학생만 남아 올리는 기록은 받지 않는다)
-      if (![...this.conns.values()].some(x => x.teacher)) return;
       const id = `${pack}|${stage}|${run}`;
       this.rankTimes = this.rankTimes.filter(at => now - at < 60_000);
       if (this.rankedIds.has(id) || this.rankTimes.length >= RANK.perMin) return;   // 같은 판은 한 번, 방 전체로 1분에 여섯 번까지

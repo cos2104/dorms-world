@@ -3,7 +3,7 @@
  * 연결이 끊기면 몇 번 다시 붙어 보고, 그래도 안 되면 까닭을 알려 준다.
  * 받은 글은 모두 남이 보낸 것이라 모양을 검사하고 나서 넘긴다.
  */
-import { CLOSE, cleanNick, cleanPad, cleanRoomInfo, cleanTitle, emptyRoom, MAX_SEATS, RANK, readClassInfo, readNames, type ClassInfo, type NameList, type PublicRoom, type RoomInfo, type View, type WirePad } from './room-rules';
+import { CLOSE, cleanNick, cleanPad, cleanRoomInfo, cleanTitle, emptyRoom, MAX_SEATS, RANK, readClassInfo, readNames, type ClassInfo, type NameList, type PublicRoom, type RoomInfo, type View, type WirePad, NOTICE } from './room-rules';
 import { validRoomCode } from './room-code';
 import { readWire, type Wire } from './sync';
 import type { Pad } from './sim';
@@ -43,7 +43,7 @@ export type RoomEvents = {
 };
 
 /** pass 를 주면 들어올 때마다(다시 붙을 때도) 출입증을 낸다. title · rank 는 방을 만들 때만 쓰인다. */
-export type JoinOptions = { create?: boolean; view?: View | 'auto'; pub?: boolean; big?: boolean; id?: string; retries?: number; socket?: typeof WebSocket; pass?: string; title?: string; rank?: boolean };
+export type JoinOptions = { create?: boolean; view?: View | 'auto'; pub?: boolean; big?: boolean; id?: string; retries?: number; socket?: typeof WebSocket; pass?: string; title?: string; rank?: boolean; agree?: boolean };
 
 const RETRY_MS = [400, 900, 1800, 3500, 5000];
 const QUIET_MS = 25_000, PING_MS = 10_000, HB_MS = 5_000, PASS_WAIT_MS = 5_000;
@@ -171,7 +171,7 @@ export class RoomLink {
   private sendPass() {
     const o = this.opts;
     if (!o.pass) return;
-    this.raw(JSON.stringify({ t: 'pass', v: o.pass, title: cleanTitle(o.title), rank: o.rank ? 1 : 0 }));
+    this.raw(JSON.stringify({ t: 'pass', v: o.pass, title: cleanTitle(o.title), rank: o.rank ? 1 : 0, agree: o.agree ? NOTICE : 0 }));
     if (this.passTimer) clearTimeout(this.passTimer);
     this.passTimer = setTimeout(() => { this.passTimer = null; if (!this.done && this.open && !this.teacher) this.ev.pass?.(false); }, PASS_WAIT_MS);
   }

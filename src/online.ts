@@ -24,7 +24,7 @@ import { joinRoom, listPublic, type Down, type NickState, type RankNews, type Ro
 import { findPack, type Pack } from '../platform/packs';
 import { cameraFor, nearText, render, type Camera } from '../platform/render';
 import { cleanRoomCode, newRoomCode, validRoomCode } from '../platform/room-code';
-import { MAX_SEATS, NICK_MAX, TITLE_MAX, cleanNick, cleanTitle, readPass, type PassClaims, type PublicRoom, type RoomInfo } from '../platform/room-rules';
+import { MAX_SEATS, NOTICE, NICK_MAX, TITLE_MAX, cleanNick, cleanTitle, readPass, type PassClaims, type PublicRoom, type RoomInfo } from '../platform/room-rules';
 import { createWorld, removePlayer, setPlayerCount, step, type Pad, type World } from '../platform/sim';
 import { GuestPads, SNAP_EVERY, applyWire, blend, newTrack, padSender, pushWire, toWire, wireSeats, type Track, type Wire } from '../platform/sync';
 import { esc, mmss } from '../platform/text';
@@ -97,6 +97,13 @@ function myPass(): { pass: string; claims: PassClaims } | null {
   return { pass: v, claims };
 }
 const LOGIN_URL = 'https://dorms.school/login?next=/world';
+// 선생님 방 안내에 동의했는지: 출입증에 적혀 있거나(도름스에 남은 기록), 이 기기에서 방금 동의했거나
+const NOTICE_KEY = 'dorms-world.notice';
+function noticeAgreed(claims: PassClaims) {
+  if (claims.c >= NOTICE) return true;
+  try { return localStorage.getItem(NOTICE_KEY) === `${claims.u}:${NOTICE}`; } catch { return false; }
+}
+function rememberNotice(claims: PassClaims) { try { localStorage.setItem(NOTICE_KEY, `${claims.u}:${NOTICE}`); } catch { /* 저장이 막힌 기기는 다음에 다시 묻는다 */ } }
 /** 방에 있는 동안 주소 뒤에 붙는 값. */
 export const query = () => (link ? `?room=${link.code}` : '');
 
@@ -157,7 +164,8 @@ function enter(code: string, o: { create?: boolean; pub?: boolean; big?: boolean
     paintTeach();
   };
   // 출입증이 있으면 들어올 때마다 낸다: 내가 연 방이면 선생님 방이 되고, 내 선생님 방에 다시 들어온 것이면 선생님 화면이 돌아온다
-  const mine = joinRoom(ROOM_URL, code, { ...o, view: 'auto', id: tabId(), pass: myPass()?.pass }, {
+  const teacherNow = myPass();
+  const mine = joinRoom(ROOM_URL, code, { ...o, view: 'auto', id: tabId(), pass: teacherNow?.pass, agree: !!teacherNow && noticeAgreed(teacherNow.claims) }, {
     hello: l => {
       if (l !== link) return;
       remade = 0; toast(''); changed(l);
@@ -401,7 +409,18 @@ function openDialog(label: string, badge: string, body: string, opener?: HTMLEle
 function createDialog(opener: HTMLElement) {
   let pub = false, big = false, rank = false;
   const teacher = myPass();
+  const ask = !!teacher && !noticeAgreed(teacher.claims);   // 선생님 방을 처음 여는 선생님께는 그 자리에서 알리고 동의를 받는다
   // 선생님이 여는 방: 방 제목과 순위에 올릴지를 여기서 정한다(학생끼리 여는 방에는 이 칸이 없다)
+  const noticePart = ask ? `<div class="w-notice" role="group" aria-labelledby="w-notice-k">
+    <p class="ar-kicker w-kicker" id="w-notice-k">선생님 방을 열기 전에 확인해 주세요</p>
+    <ul class="w-notes w-notice-list">
+      <li>선생님 방을 열면 선생님의 도름스 회원 번호와 닉네임이 방을 이어 주는 서버(Cloudflare)로 전달돼요. 방이 닫히면 지워져요.</li>
+      <li>어느 게임을 어느 날 여셨는지가 도름스에 남아요. 게임을 만든 선생님께 몇 개 반에서 쓰였는지 알려 드리는 데만 쓰고, 누가 썼는지는 알리지 않아요.</li>
+      <li>순위에 올리면 방 제목, 걸린 시간, 인원, 선생님 닉네임이 누구에게나 보여요.</li>
+      <li>학생은 가입 없이 들어오고 학생 정보는 저장하지 않아요. 학생이 닉네임에 이름, 학번, 연락처 같은 개인정보를 적지 않게 살펴봐 주세요. 닉네임은 선생님이 승인해야 보여요.</li>
+    </ul>
+    <label class="w-agree"><input type="checkbox" id="w-agree"><span>확인했고 동의해요</span></label>
+    <p class="ar-sub w-pick-note w-agree-note">동의하지 않으면 선생님 기능(방 제목, 닉네임 승인, 순위) 없이 보통 방으로 열려요.</p></div>` : '';
   const teacherPart = teacher ? `<div class="w-make-teacher">
     <p class="w-teacher-line w-teacher-inline"><span class="ar-count w-teacher-tag">선생님</span><b class="w-teacher-nick">@${esc(teacher.claims.n)}</b><span>선생님 방으로 열려요. 학생이 닉네임을 신청하면 선생님이 승인해요.</span></p>
     <label class="ar-kicker w-kicker" for="w-title">방 제목</label>
@@ -410,7 +429,7 @@ function createDialog(opener: HTMLElement) {
     <p class="ar-kicker w-kicker" id="w-rank-k">순위에 올릴까요</p>
     <div class="ar-view-tabs" role="group" aria-labelledby="w-rank-k"><button class="ar-key ghost" data-rank="0">올리지 않기</button><button class="ar-key ghost" data-rank="1">순위에 올리기</button></div>
     <p class="ar-sub w-pick-note" data-rank-note></p></div>` : '';
-  const el = openDialog('방 만들기', 'ROOM', `<div class="w-make-cols">${teacherPart}<div class="w-make-room">
+  const el = openDialog('방 만들기', 'ROOM', `${noticePart}<div class="w-make-cols">${teacherPart}<div class="w-make-room">
     <p class="ar-kicker w-kicker" id="w-pub-k">누가 들어올 수 있나요</p>
     <div class="ar-view-tabs" role="group" aria-labelledby="w-pub-k"><button class="ar-key ghost" data-pub="0" data-first>코드를 아는 친구만</button><button class="ar-key ghost" data-pub="1">누구나</button></div>
     <p class="ar-sub w-pick-note" data-pub-note></p>
@@ -420,6 +439,11 @@ function createDialog(opener: HTMLElement) {
     <p class="lab-note w-make-note" role="status"></p>
     <div class="lab-actions"><button class="ar-key mustard" data-make>${icon('users', 17)}방 만들기</button></div>`, opener);
   const titleEl = el.querySelector<HTMLInputElement>('#w-title'), makeNote = el.querySelector<HTMLElement>('.w-make-note')!;
+  const agreeEl = el.querySelector<HTMLInputElement>('#w-agree');
+  const asTeacher = () => !!teacher && (!ask || !!agreeEl?.checked);
+  // 동의하기 전에는 선생님 칸(방 제목, 순위)을 쓸 수 없다
+  const lock = () => { const off = !asTeacher(); el.querySelector('.w-make-teacher')?.classList.toggle('is-off', off); if (titleEl) titleEl.disabled = off; el.querySelectorAll<HTMLButtonElement>('[data-rank]').forEach(b => { b.disabled = off; }); if (off) rank = false; };
+  if (agreeEl) agreeEl.onchange = () => { lock(); paint(); };
   const paint = () => {
     el.querySelectorAll<HTMLElement>('[data-rank]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.rank === '1') === rank)));
     const rankNote = el.querySelector('[data-rank-note]');
@@ -434,15 +458,16 @@ function createDialog(opener: HTMLElement) {
   el.querySelectorAll<HTMLButtonElement>('[data-rank]').forEach(b => b.onclick = () => { rank = b.dataset.rank === '1'; makeNote.textContent = ''; paint(); });
   if (titleEl) titleEl.oninput = () => { makeNote.textContent = ''; };
   el.querySelector<HTMLButtonElement>('[data-make]')!.onclick = e => {
-    const title = titleEl ? cleanTitle(titleEl.value) : '';
-    if (titleEl && titleEl.value.trim() && !title) { makeNote.textContent = '방 제목은 스무 글자까지 한 줄로 적어 주세요.'; titleEl.focus(); return; }
+    const title = titleEl && asTeacher() ? cleanTitle(titleEl.value) : '';
+    if (asTeacher() && titleEl && titleEl.value.trim() && !title) { makeNote.textContent = '방 제목은 스무 글자까지 한 줄로 적어 주세요.'; titleEl.focus(); return; }
     if (rank && !title) { makeNote.textContent = '순위에 올리려면 방 제목을 적어 주세요.'; titleEl?.focus(); return; }
     (e.currentTarget as HTMLButtonElement).disabled = true;
     pendingInvite = true; remade = 0;
-    enter(newRoomCode(), { create: true, pub, big, ...(teacher ? { title, rank } : {}) });
+    if (teacher && ask && agreeEl?.checked) rememberNotice(teacher.claims);
+    enter(newRoomCode(), { create: true, pub, big, ...(asTeacher() ? { title, rank } : {}) });
     host.go(location.pathname.slice(BASE.length));       // 주소에 방 코드를 붙이고 화면에 방 줄을 단다
   };
-  paint();
+  lock(); paint();
 }
 
 const inviteUrl = () => `${(import.meta.env.VITE_PUBLIC_URL ?? '').trim().replace(/\/+$/, '') || location.origin}${BASE}?room=${link?.code ?? ''}`;
@@ -558,7 +583,7 @@ function paintTeach() {
     ${l.cls.title ? `<p class="w-room-title">${esc(l.cls.title)}</p>` : ''}
     <div class="w-teach-code"><p class="ar-kicker w-kicker">방 코드</p><div class="lab-code w-bigcode">${esc(l.code)}</div><div class="w-qr">${qrFor(inviteUrl())}</div><p class="ar-sub w-teach-how">QR 을 찍거나 방 코드를 넣으면 바로 들어와요. ${l.cls.rank ? '깬 시간은 순위에 올라가요.' : '순위에는 올리지 않아요.'}</p></div>
     <p class="ar-kicker w-kicker w-teach-k">닉네임 신청 <span class="lab-num">${l.asks.length}</span>건</p>
-    ${asks ? `<div class="lab-roster w-asks">${asks}</div>` : '<p class="w-public-none w-asks-none">기다리는 신청이 없어요. 학생이 닉네임을 보내면 여기에 떠요.</p>'}
+    ${asks ? `<p class="ar-sub w-asks-care">이름, 학번, 연락처 같은 개인정보가 든 닉네임은 반려해 주세요.</p><div class="lab-roster w-asks">${asks}</div>` : '<p class="w-public-none w-asks-none">기다리는 신청이 없어요. 학생이 닉네임을 보내면 여기에 떠요.</p>'}
     <p class="ar-kicker w-kicker w-teach-k">명단 <span class="lab-num">${l.seats.length}</span>명</p>
     <div class="lab-roster w-teach-list">${rows}</div>`;
   paintSwatches(teachEl);

@@ -20,14 +20,15 @@ const NOW = 1_763_800_000;
 const TEACHER = '11111111-2222-4333-8444-555555555555', OTHER = '99999999-2222-4333-8444-555555555555';
 const b64 = (b: Buffer | string) => Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 function makePass(claims: Record<string, unknown> = {}, secret = SECRET) {
-  const body = b64(JSON.stringify({ u: TEACHER, n: '창욱쌤', a: 1, iat: NOW - 60, exp: NOW - 60 + 12 * 3600, ...claims }));
+  const body = b64(JSON.stringify({ u: TEACHER, n: '창욱쌤', a: 1, iat: NOW - 60, exp: NOW - 60 + 12 * 3600, c: 1, ...claims }));
   return `v1.${body}.${b64(createHmac('sha256', secret).update(`v1.${body}`).digest())}`;
 }
 
 describe('교사 출입증', () => {
   it('도름스가 만든 출입증은 서명과 기한이 맞으면 받는다', async () => {
     const claims = await verifyPass(makePass(), SECRET, NOW);
-    expect(claims).toEqual({ u: TEACHER, n: '창욱쌤', a: 1, iat: NOW - 60, exp: NOW - 60 + 12 * 3600 });
+    expect(claims).toEqual({ u: TEACHER, n: '창욱쌤', a: 1, iat: NOW - 60, exp: NOW - 60 + 12 * 3600, c: 1 });
+    expect((await verifyPass(makePass({ c: undefined }), SECRET, NOW))?.c).toBe(0);                // 동의 기록이 없는 출입증
     expect(readPass(makePass({ a: 0 }), NOW)).toMatchObject({ n: '창욱쌤', a: 0 });       // 화면은 서명을 보지 않고 닉네임만 읽는다
   });
 
@@ -102,15 +103,16 @@ const sock = (name: string): Sock => ({ name, got: [], closed: null, saved: null
 const J = (o: Partial<JoinQuery> = {}): JoinQuery => ({ mode: 'join', view: 'auto', id: '', pub: false, big: false, ...o });
 const CODE = 'ABCDEF';
 const INFO: RoomInfo = { pack: 'math/scale-equation', stage: 1, seed: 77, run: 3, pub: false, big: false, order: [0, 1, 2] };
-const CLAIMS: PassClaims = { u: TEACHER, n: '창욱쌤', a: 1, iat: NOW - 60, exp: NOW + 3600 };
+const CLAIMS: PassClaims = { u: TEACHER, n: '창욱쌤', a: 1, iat: NOW - 60, exp: NOW + 3600, c: 1 };
 /** 방 하나. 출입증은 '맞는 것'을 good, 다른 교사의 것을 other 로 흉내 낸다(서명 확인은 위에서 따로 본다). */
 function room(withPass = true) {
-  const ranks: RankReport[] = [], uses: UseReport[] = [];
+  const ranks: RankReport[] = [], uses: UseReport[] = [], agrees: { teacher: string; version: number }[] = [];
   const core: RoomCore<Sock> = new RoomCore<Sock>({
     send: (s, t) => { if (!s.closed) s.got.push(t); },
     close: (s, code, reason) => { s.closed ??= [code, reason]; },
     save: (s, saved) => { s.saved = saved; },
-    ...(withPass ? { pass: (seat: number, key: number, pass: string, setup: { title: string; rank: boolean }) => core.grant(seat, key, pass === 'good' ? CLAIMS : pass === 'other' ? { ...CLAIMS, u: OTHER } : null, setup, 0) } : {}),
+    ...(withPass ? { pass: (seat: number, key: number, pass: string, setup: { title: string; rank: boolean; agree: boolean }) => core.grant(seat, key, pass === 'good' ? CLAIMS : pass === 'new' ? { ...CLAIMS, c: 0 } : pass === 'other' ? { ...CLAIMS, u: OTHER } : null, setup, 0) } : {}),
+    agree: a => agrees.push(a),
     rank: r => ranks.push(r),
     use: u => uses.push(u),
   });
@@ -121,10 +123,23 @@ function room(withPass = true) {
   const last = (s: Sock, t: string) => all(s, t).pop();
   /** 선생님이 방을 만들고 출입증을 낸다. */
   const teach = (setup: { title?: string; rank?: 0 | 1 } = { title: '3학년 2반', rank: 1 }) => { const t = enter('선생님', { mode: 'create' }); say(t, { t: 'pass', v: 'good', ...setup }); return t; };
-  return { core, ranks, uses, enter, say, bye, all, last, teach };
+  return { core, ranks, uses, enter, say, bye, all, last, teach, agrees };
 }
 
 describe('교사 방: 출입증으로 방 열기', () => {
+  it('선생님 방 안내에 동의한 선생님만 교사 방을 연다. 처음 동의하면 도름스에 적으라고 알린다', () => {
+    const r = room(), t = r.enter('선생님', { mode: 'create' });
+    r.say(t, { t: 'pass', v: 'new', title: '반', rank: 1 }, 0);                             // 동의 기록이 없고 지금도 동의하지 않았다
+    expect(r.last(t, 'pass')).toEqual({ t: 'pass', ok: 0 });
+    expect([r.core.isClass, r.agrees]).toEqual([false, []]);                               // 보통 방으로 남는다
+    r.say(t, { t: 'pass', v: 'new', title: '반', rank: 1, agree: 1 }, 4000);                // 그 자리에서 동의했다
+    expect(r.last(t, 'pass')).toEqual({ t: 'pass', ok: 1 });
+    expect([r.core.isClass, r.agrees]).toEqual([true, [{ teacher: TEACHER, version: 1 }]]);
+    const r2 = room(), t2 = r2.enter('선생님', { mode: 'create' });
+    r2.say(t2, { t: 'pass', v: 'good', title: '반' }, 0);                                   // 전에 동의해 출입증에 적혀 있으면 다시 알리지 않는다
+    expect([r2.core.isClass, r2.agrees]).toEqual([true, []]);
+  });
+
   it('방을 만든 연결이 맞는 출입증을 내면 교사 방이 되고, 방 제목과 순위에 올리기가 정해진다', () => {
     const r = room(), t = r.enter('선생님', { mode: 'create' });
     expect(r.last(t, 'hi')).not.toHaveProperty('cls');                                     // 처음에는 보통 방이다
@@ -477,19 +492,28 @@ describe('교사 방: 순위와 쓰임 알림', () => {
     expect(big.ranks[0].players).toBe(28);                                                 // 큰 화면은 세지 않는다
   });
 
-  it('교사가 방에 없는 동안에는 순위를 올리지 않는다(교사가 연 방이라도 학생만 남아 올리는 기록은 받지 않는다). 교사가 돌아오면 다시 올라간다', () => {
+  it('순위는 교사의 기기가 방장이고 그 기기가 연 판일 때만 오른다. 교사가 돌아오면 방장을 돌려받는다', () => {
     const { r, t, a } = playing();
     r.bye(t);
     expect(a.saved).toMatchObject({ host: true, cls: { u: TEACHER, title: '3학년 2반' } });   // 교사 방 정보는 새 방장의 연결로 옮겨 붙는다
-    r.say(a, { t: 'won', r: 3, ms: 9000 }, 10_000);
+    r.say(a, { t: 'won', r: 3, ms: 9000 }, 10_000);                                        // 학생 기기가 방장인 동안의 기록
     expect(r.ranks).toEqual([]);
-    r.say(a, { t: 'room', room: { ...INFO, run: 4, order: [1, 2] } }, 20_000);
+    r.say(a, { t: 'room', room: { ...INFO, run: 4, order: [1, 2] } }, 20_000);             // 학생 기기가 연 판
     const back = r.enter('돌아온 선생님');
-    r.say(a, { t: 'won', r: 4, ms: 5000 }, 25_000);                                        // 들어오기만 하고 출입증을 아직 내지 않았다
+    r.say(a, { t: 'won', r: 4, ms: 5000 }, 25_000);
     expect(r.ranks).toEqual([]);
     r.say(back, { t: 'pass', v: 'good' }, 25_100);
-    r.say(a, { t: 'won', r: 4, ms: 5200 }, 25_200);
-    expect(r.ranks).toEqual([{ run: 4, pack: 'math/scale-equation', stage: 1, ms: 5200, players: 3, title: '3학년 2반', teacher: TEACHER }]);
+    expect(back.saved).toMatchObject({ host: true });                                      // 방장이 교사에게 돌아왔다
+    expect(a.saved).toMatchObject({ host: false });
+    r.say(back, { t: 'won', r: 4, ms: 5200 }, 25_200);                                     // 학생 기기가 연 판은 교사가 방장이 된 뒤에도 오르지 않는다
+    expect(r.ranks).toEqual([]);
+    r.say(back, { t: 'room', room: { ...INFO, run: 5, order: [1, 2, 3] } }, 30_000);       // 교사의 기기가 연 새 판
+    r.say(a, { t: 'won', r: 5, ms: 6000 }, 36_000);                                        // 방장이 아닌 기기가 알린 것은 받지 않는다
+    expect(r.ranks).toEqual([]);
+    r.say(back, { t: 'won', r: 5, ms: 6000 }, 36_000);
+    expect(r.ranks).toEqual([{ run: 5, pack: 'math/scale-equation', stage: 1, ms: 6000, players: 3, title: '3학년 2반', teacher: TEACHER }]);
+    r.say(back, { t: 'won', r: 5, ms: 6000 }, 36_500);                                     // 같은 판은 한 번만
+    expect(r.ranks.length).toBe(1);
   });
 
   it('쓰임 알림: 교사 방에서 어떤 팩이 처음 열릴 때 팩마다 한 번. 학생끼리 연 방에서는 부르지 않는다', () => {
@@ -756,7 +780,7 @@ describe('연결(net): 교사 방', () => {
     a.askName('달팽이'); await tick();
     const back = joinRoom('http://room.test', CODE, { socket: net.Fake, pass }, {});
     await tick();
-    expect([back.teacher, back.isHost, back.asks]).toEqual([true, false, [[1, '달팽이']]]);
+    expect([back.teacher, back.isHost, back.asks]).toEqual([true, true, [[1, '달팽이']]]);   // 돌아온 교사가 방장을 돌려받는다
     back.judge(1, true, '달팽이'); await tick();
     expect(a.nickOf(1)).toBe('달팽이');
     a.leave(); back.leave();

@@ -25,6 +25,7 @@ export interface Env {
   /** 로컬 시험에서만: 순위 · 쓰임을 적을 흉내 서버 주소(이 컴퓨터의 주소만 받는다). 운영에서는 비워 둔다. */
   RANKS_URL?: string;
   USES_URL?: string;
+  CONSENTS_URL?: string;
   /** 로컬 시험에서만: '1' 이면 주소마다의 횟수 제한을 끈다(시험이 방을 잇달아 만든다). 운영에서는 넣지 않는다. */
   GATE_OFF?: string;
 }
@@ -90,6 +91,7 @@ export class Room extends DurableObject<Env> {
         this.ctx.waitUntil(verifyPass(pass, this.env.WORLD_ROOM_SECRET, Math.floor(Date.now() / 1000)).catch(() => null).then(claims => this.core.grant(seat, key, claims, setup)));
       },
       rank: report => { this.ctx.waitUntil(this.postRank(report)); },
+      agree: a => { this.ctx.waitUntil(this.post('consents', this.env.CONSENTS_URL, { teacher: a.teacher, version: a.version })); },
       use: use => { this.ctx.waitUntil(this.post('uses', this.env.USES_URL, { packId: use.pack, teacher: use.teacher })); },
     });
     // 잠들었다 깬 방: 살아 있는 연결에 붙여 둔 값으로 자리와 방 정보를 되살린다
@@ -139,7 +141,7 @@ export class Room extends DurableObject<Env> {
   }
 
   /** 도름스에 적는다. 실패해도 방은 그대로 간다(한 번만 더 해 본다). 받은 답(JSON)이나 null 을 돌려준다. */
-  private async post(kind: 'ranks' | 'uses', override: string | undefined, body: unknown): Promise<unknown> {
+  private async post(kind: 'ranks' | 'uses' | 'consents', override: string | undefined, body: unknown): Promise<unknown> {
     const secret = this.env.WORLD_ROOM_SECRET;
     if (!secret || secret.length < 32) return null;
     for (let i = 0; i < 2; i++) {
