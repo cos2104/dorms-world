@@ -512,6 +512,12 @@ if (!flag('only-shots') && ownRoom) {
   ok('게임 도중에 돌아온 선생님이 방장을 돌려받아도 판이 처음으로 돌아가지 않는다(학생이 걸어간 자리 그대로, 도름이 셋)',
     !!again && far > start + 40 && seenByS1 > far - 30 && seenByT > far - 30 && afterWorld.n === 3,
     JSON.stringify({ start, far, seenByS1, seenByT, n: afterWorld.n }));
+  // 돌아온 선생님의 도름이가 조작을 받는다(H1 의 둘째 증상: 선생님 도름이가 없어 입력이 먹지 않았다)
+  const tSeat = (await T.room()).me, tX = async () => { const r = await T.room(), w = await T.world(); return w.xs[r.room.order.indexOf(tSeat)]; };
+  const tBefore = await tX();
+  await T.page.bringToFront(); await T.hold('ArrowRight', 500); await T.hold('ArrowLeft', 900); await sleep(300);
+  const tAfter = await tX(), tSeenByS1 = await (async () => { const r = await S1.room(), w = await S1.world(); return w.xs[r.room.order.indexOf(tSeat)]; })();
+  ok('돌아온 선생님의 도름이가 움직이고 학생 화면에도 그렇게 보인다', Math.abs(tAfter - tBefore) > 8 && Math.abs(tSeenByS1 - tAfter) < 30, JSON.stringify({ tBefore, tAfter, tSeenByS1 }));
   // 방장을 맡은 기기가 요약을 보내지 않아도(멎었거나 일부러) 선생님은 방장을 돌려받는다: 2.5초 기다린 뒤 스테이지를 처음부터 다시 연다
   const mute = await ghost(code, { send: false });
   await S1.page.goto('about:blank'); await S2.page.goto('about:blank'); await T.page.goto('about:blank');

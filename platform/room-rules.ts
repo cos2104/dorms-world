@@ -13,6 +13,10 @@ export const MAX_SEATS = 30;
 /** 메시지 크기 상한(바이트). 손님은 조작 신호뿐이라 작고, 방장만 세계 요약을 보낸다. */
 export const LIMITS = { guest: 256, snap: 32 * 1024, host: 2048, pass: 1024, perSec: 40, burst: 80 } as const;
 /** 닉네임 10자, 방 제목 20자. 닉네임 신청은 연결마다 10초에 한 번, 출입증 내기는 3초에 한 번. */
+/** 판 번호의 상한. 방장이 이 값을 넘겨 보내면 방 서버가 받지 않는다. 화면은 다음 판을 열 때 이 값에서 1 로 돌아간다. */
+export const RUN_MAX = 1_000_000_000;
+/** 다음 판 번호. 앞 방장이 상한까지 올려 둔 번호를 넘겨받아도 다음 판을 열 수 있게 1 로 돌아간다(그대로 1 을 더하면 방 서버가 받지 않아 방이 멎는다). */
+export const nextRun = (run: number) => (Number.isInteger(run) && run >= 0 && run < RUN_MAX ? run + 1 : 1);
 export const NICK_MAX = 10, TITLE_MAX = 20, ASK_GAP = 10_000, PASS_GAP = 3000, PASS_MAX = 800;
 /**
  * 순위에 올리는 시간은 방장이 알린 값이 아니라 방 서버가 잰 값이다(판이 열린 때부터 깼다는 글이 온 때까지). 3초 이상 3시간 이하.
@@ -53,7 +57,7 @@ export function cleanRoomInfo(x: unknown): RoomInfo | null {
   const o = x as Record<string, unknown>;
   const pack = o.pack;
   if (typeof pack !== 'string' || pack.length > 64 || (pack !== '' && !PACK_ID.test(pack))) return null;
-  if (!int(o.stage, -1, 99) || !int(o.seed, 1, 2147483647) || !int(o.run, 0, 1_000_000_000)) return null;
+  if (!int(o.stage, -1, 99) || !int(o.seed, 1, 2147483647) || !int(o.run, 0, RUN_MAX)) return null;
   if (typeof o.pub !== 'boolean' || typeof o.big !== 'boolean') return null;
   const order = o.order;
   if (!Array.isArray(order) || order.length > MAX_SEATS || !order.every(s => int(s, 0, MAX_SEATS - 1)) || new Set(order).size !== order.length) return null;

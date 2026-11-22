@@ -24,7 +24,7 @@ import { joinRoom, listPublic, type Down, type NickState, type RankNews, type Ro
 import { findPack, type Pack } from '../platform/packs';
 import { cameraFor, nearText, render, type Camera } from '../platform/render';
 import { cleanRoomCode, newRoomCode, validRoomCode } from '../platform/room-code';
-import { MAX_SEATS, NOTICE, NICK_MAX, TITLE_MAX, cleanNick, cleanTitle, readPass, type PassClaims, type PublicRoom, type RoomInfo } from '../platform/room-rules';
+import { MAX_SEATS, NOTICE, nextRun, NICK_MAX, TITLE_MAX, cleanNick, cleanTitle, readPass, type PassClaims, type PublicRoom, type RoomInfo } from '../platform/room-rules';
 import { createWorld, removePlayer, setPlayerCount, step, type Pad, type World } from '../platform/sim';
 import { GuestPads, SNAP_EVERY, applyWire, blend, newTrack, padSender, pushWire, toWire, wireSeats, type Track, type Wire } from '../platform/sync';
 import { esc, mmss } from '../platform/text';
@@ -303,7 +303,7 @@ function idleRoom() {
 export function start(p: Pack, si: number) {
   const l = link; if (!l?.isHost) return;
   reconcile();
-  l.setRoom({ ...l.room, pack: p.id, stage: si, seed: 1 + Math.floor(Math.random() * 2147483000), run: l.room.run + 1 });
+  l.setRoom({ ...l.room, pack: p.id, stage: si, seed: 1 + Math.floor(Math.random() * 2147483000), run: nextRun(l.room.run) });
   openGame(p, si);
 }
 

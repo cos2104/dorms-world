@@ -8,7 +8,7 @@ import { joinRoom, type NickState, type RankNews, type RoomLink } from '../platf
 import {
   ASK_GAP, CLOSE, GATE, Gate, LIMITS, MAX_SEATS, PASS_GAP, RANK, RoomCore, cleanLine, cleanNick, cleanTitle, dormsUrl, ipKey, readClassInfo, readJoinQuery, readNames, readPass, readRankReply, verifyPass,
   type JoinQuery, type PassClaims, type RankReport, type RoomInfo, type Saved, type UseReport,
-} from '../platform/room-rules';
+ RUN_MAX, nextRun, cleanRoomInfo } from '../platform/room-rules';
 import { NO_PAD, type Pad } from '../platform/sim';
 import { GuestPads, PAD_REPEAT_MS, PAD_STALE_MS, padSender } from '../platform/sync';
 import { readRanks } from '../src/ranks';
@@ -125,6 +125,15 @@ function room(withPass = true) {
   const teach = (setup: { title?: string; rank?: 0 | 1 } = { title: '3학년 2반', rank: 1 }) => { const t = enter('선생님', { mode: 'create' }); say(t, { t: 'pass', v: 'good', ...setup }); return t; };
   return { core, ranks, uses, enter, say, bye, all, last, teach, agrees };
 }
+
+describe('판 번호', () => {
+  it('다음 판 번호는 1 씩 오르고, 상한에 닿았거나 이상한 값이면 1 로 돌아간다(방 서버가 받는 범위를 벗어나지 않는다)', () => {
+    expect([nextRun(0), nextRun(4), nextRun(RUN_MAX - 1)]).toEqual([1, 5, RUN_MAX]);
+    expect([nextRun(RUN_MAX), nextRun(RUN_MAX + 5), nextRun(-1), nextRun(1.5), nextRun(Number.NaN)]).toEqual([1, 1, 1, 1, 1]);
+    for (const run of [0, 7, RUN_MAX - 1, RUN_MAX]) expect(cleanRoomInfo({ ...INFO, run: nextRun(run) })).not.toBeNull();
+    expect(cleanRoomInfo({ ...INFO, run: RUN_MAX + 1 })).toBeNull();
+  });
+});
 
 describe('교사 방: 출입증으로 방 열기', () => {
   it('선생님 방 안내에 동의한 선생님만 교사 방을 연다. 처음 동의하면 도름스에 적으라고 알린다', () => {
