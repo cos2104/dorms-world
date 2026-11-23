@@ -1,22 +1,23 @@
 {
   "legend": {
-    "a": {
-      "type": "button",
-      "need": 1,
+    "w": {
+      "type": "wire"
+    },
+    "b": {
+      "type": "source"
+    },
+    "l": {
+      "type": "lamp",
       "opens": [
         "x"
       ]
     },
-    "b": {
-      "type": "button",
-      "need": 1,
-      "opens": [
-        "x"
-      ]
+    "c": {
+      "type": "contact"
     },
     "x": {
       "type": "bridge"
     }
   },
-  "hint": "스위치를 밟고 있는 동안만 길이 이어져요. 모두 문으로 들어가요."
+  "hint": "끊긴 자리에 서면 전선이 이어져요. 불이 켜지면 계단이 생겨요."
 }

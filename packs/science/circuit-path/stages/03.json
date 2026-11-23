@@ -1,36 +1,29 @@
 {
   "legend": {
-    "a": {
-      "type": "button",
-      "need": 1,
-      "opens": [
-        "x"
-      ]
+    "w": {
+      "type": "wire"
     },
     "b": {
-      "type": "button",
-      "need": 1,
+      "type": "source"
+    },
+    "l": {
+      "type": "lamp",
       "opens": [
         "x"
       ]
     },
     "c": {
-      "type": "button",
-      "need": 1,
-      "opens": [
-        "x"
-      ]
+      "type": "contact"
     },
     "d": {
-      "type": "button",
-      "need": 1,
-      "opens": [
-        "x"
-      ]
+      "type": "contact"
+    },
+    "e": {
+      "type": "contact"
     },
     "x": {
       "type": "bridge"
     }
   },
-  "hint": "앞 스테이지와 똑같이 생겼어요. 정말 똑같을까요?"
+  "hint": "접점이 셋이에요. 꼭 셋 다 서야 할까요?"
 }

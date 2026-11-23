@@ -1,32 +1,30 @@
 {
   "legend": {
-    "a": {
-      "type": "button",
-      "need": 1,
-      "opens": [
-        "x"
-      ]
+    "w": {
+      "type": "wire"
     },
     "b": {
-      "type": "button",
-      "need": 1,
-      "opens": [
-        "y"
-      ]
+      "type": "source"
     },
-    "c": {
-      "type": "button",
-      "need": 1,
+    "l": {
+      "type": "lamp",
       "opens": [
         "x"
-      ]
+      ],
+      "when": "on"
     },
-    "d": {
-      "type": "button",
-      "need": 1,
+    "m": {
+      "type": "lamp",
       "opens": [
         "y"
-      ]
+      ],
+      "when": "on"
+    },
+    "c": {
+      "type": "contact"
+    },
+    "d": {
+      "type": "contact"
     },
     "x": {
       "type": "bridge"
@@ -35,5 +33,5 @@
       "type": "bridge"
     }
   },
-  "hint": "스위치가 둘이에요. 어떤 스위치가 길의 어디를 잇는지 살펴봐요."
+  "hint": "끊긴 자리가 둘이에요. 누가 어디에 설지 정해요."
 }
