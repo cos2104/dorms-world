@@ -1,0 +1,41 @@
+{
+  "legend": {
+    "p": {
+      "type": "press"
+    },
+    "q": {
+      "type": "desk"
+    },
+    "o": {
+      "type": "out",
+      "max": 3
+    },
+    "a": {
+      "type": "slot",
+      "latex": "0",
+      "a": 0,
+      "b": 3,
+      "tol": 0.4,
+      "opens": [
+        "x"
+      ]
+    },
+    "b": {
+      "type": "slot",
+      "latex": "0",
+      "a": 0,
+      "b": 5,
+      "tol": 0.4,
+      "opens": [
+        "y"
+      ]
+    },
+    "x": {
+      "type": "bridge"
+    },
+    "y": {
+      "type": "bridge"
+    }
+  },
+  "hint": "패인 홈에 꼭 맞는 그래프를 넣으면 다리가 놓여요. 모눈으로 너비를 세어 봐요"
+}

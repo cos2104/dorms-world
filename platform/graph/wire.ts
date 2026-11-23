@@ -4,7 +4,7 @@
  * 화면에 뜨는 판 알림은 글이 아니라 RNOTE_LIST 의 번호로만 간다.
  */
 import { LATEX_MAX } from './expr';
-import { BODY_MAX, PIECE_MAX, RNOTE_LIST, makeShape, type Body, type GraphStage, type GraphWorld, type Kind, type Piece } from './model';
+import { BODY_MAX, PIECE_MAX, RNOTE_LIST, makeShape, trustLatex, type Body, type GraphStage, type GraphWorld, type Kind, type Piece } from './model';
 
 const KINDS: Kind[] = ['blue', 'red', 'rain', 'bee', 'sled'];
 const STATES: Piece['state'][] = ['held', 'free', 'fall', 'planted', 'fixed'];
@@ -47,13 +47,13 @@ export function readGWire(x: unknown): GWire | null {
   const o = x as Record<string, unknown>;
   if (!Array.isArray(o.p) || o.p.length > PIECE_MAX) return null;
   for (const p of o.p) {
-    if (!Array.isArray(p) || p.length !== 12 || typeof p[2] !== 'string' || p[2].length > LATEX_MAX) return null;
+    if (!Array.isArray(p) || p.length !== 12 || typeof p[2] !== 'string') return null;   // 식이 길거나 이상하면 그 조각만 버린다(applyGraphWire)
     if (!whole(p[0], 0, 1e9) || !whole(p[1], 0, 7) || !whole(p[6], 0, STATES.length - 1) || !whole(p[10], 0, 200)) return null;
     if (![p[3], p[4], p[5], p[7], p[8], p[9]].every(num) || !nums(p[11], 30) || !p[11].every((h: number) => whole(h, 0, 29))) return null;
   }
   if (!nums(o.b, BODY_MAX * B) || o.b.length % B) return null;
   for (let i = 0; i < o.b.length; i += B) if (!whole(o.b[i], 0, KINDS.length - 1)) return null;
-  if (!Array.isArray(o.f) || o.f.length > 4 || !o.f.every(f => Array.isArray(f) && f.length === 2 && typeof f[0] === 'string' && f[0].length <= LATEX_MAX && whole(f[1], 0, 1e9))) return null;
+  if (!Array.isArray(o.f) || o.f.length > 4 || !o.f.every(f => Array.isArray(f) && f.length === 2 && typeof f[0] === 'string' && f[0].length <= 4 * LATEX_MAX && whole(f[1], 0, 1e9))) return null;
   if (!nums(o.r, 5 + 2 * 40 + 40) || o.r.length < 5 || !nums(o.d, 80) || !nums(o.k, 5) || !nums(o.s, 10) || !whole(o.n, 1, 2 ** 32) || !whole(o.i, 1, 1e9)) return null;
   return o as unknown as GWire;
 }
@@ -67,7 +67,7 @@ export function applyGraphWire(gs: GraphStage, g: GraphWorld, wire: GWire, playe
   const who = (v: number) => (Number.isInteger(v) && v >= 0 && v < players ? v : -1);
   const pieces: Piece[] = [];
   for (const p of wire.p) {
-    if (p[1] >= gs.factories.length) continue;
+    if (p[1] >= gs.factories.length || p[2].length > LATEX_MAX) continue;
     const spec = { latex: p[2], a: p[3], b: p[4], x0: p[5] };
     const old = g.pieces.find(q => q.id === p[0] && q.spec.latex === spec.latex && q.spec.a === spec.a && q.spec.b === spec.b && q.spec.x0 === spec.x0);
     const shape = old?.shape ?? makeShape(spec);
@@ -79,7 +79,8 @@ export function applyGraphWire(gs: GraphStage, g: GraphWorld, wire: GWire, playe
   const bodies: Body[] = [];
   for (let i = 0; i < wire.b.length; i += B) bodies.push({ k: KINDS[wire.b[i]], x: inX(wire.b[i + 1]), y: inY(wire.b[i + 2]), vx: wire.b[i + 3], vy: wire.b[i + 4], r: KINDS[wire.b[i]] === 'rain' ? 4 : KINDS[wire.b[i]] === 'bee' ? 7 : 8, t: Math.max(0, wire.b[i + 5]), hit: -1, bounced: !!wire.b[i + 6] });
   g.bodies = bodies;
-  wire.f.forEach(([latex, made], i) => { g.factories[i].latex = latex; g.factories[i].made = made; });
+  // 공장의 지금 식은 이 기기에서 다시 읽어 다시 쓴 것만 둔다(창의 수식 입력기에 그대로 들어가므로)
+  wire.f.forEach(([latex, made], i) => { const f = g.factories[i]; if (f.latex !== latex) f.latex = trustLatex(latex); f.made = made; });
   const r = wire.r, rd = g.round;
   rd.on = !!r[0]; rd.t = Math.max(0, r[1]); rd.score = Math.max(0, r[2] | 0);
   rd.note = r[3] > 0 ? RNOTE_LIST[r[3] - 1] ?? '' : ''; rd.noteT = rd.note ? Math.max(0, Math.min(5, r[4])) : 0;

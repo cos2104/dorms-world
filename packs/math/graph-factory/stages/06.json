@@ -1,0 +1,57 @@
+{
+  "legend": {
+    "p": {
+      "type": "press"
+    },
+    "q": {
+      "type": "desk"
+    },
+    "o": {
+      "type": "out",
+      "max": 3
+    },
+    "n": {
+      "type": "bell"
+    },
+    "h": {
+      "type": "flower",
+      "hp": 5,
+      "hold": 30,
+      "opens": [
+        "w"
+      ]
+    },
+    "i": {
+      "type": "flower",
+      "hp": 5,
+      "hold": 30,
+      "opens": [
+        "w"
+      ]
+    },
+    "s": {
+      "type": "stand"
+    },
+    "b": {
+      "type": "hive",
+      "every": [
+        2.2,
+        3.6
+      ],
+      "speed": 80
+    },
+    "c": {
+      "type": "hive",
+      "every": [
+        3,
+        4.5
+      ],
+      "speed": 80
+    },
+    "w": {
+      "type": "bridge",
+      "mode": "vanish"
+    }
+  },
+  "hint": "종을 치면 벌이 날아와요. 꽃 두 송이를 그래프로 감싸 지켜요"
+}

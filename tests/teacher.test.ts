@@ -102,7 +102,7 @@ type Sock = { name: string; got: string[]; closed: [number, string] | null; save
 const sock = (name: string): Sock => ({ name, got: [], closed: null, saved: null });
 const J = (o: Partial<JoinQuery> = {}): JoinQuery => ({ mode: 'join', view: 'auto', id: '', pub: false, big: false, ...o });
 const CODE = 'ABCDEF';
-const INFO: RoomInfo = { pack: 'math/scale-equation', stage: 1, seed: 77, run: 3, pub: false, big: false, order: [0, 1, 2] };
+const INFO: RoomInfo = { pack: 'math/graph-factory', stage: 1, seed: 77, run: 3, pub: false, big: false, order: [0, 1, 2] };
 const CLAIMS: PassClaims = { u: TEACHER, n: '창욱쌤', a: 1, iat: NOW - 60, exp: NOW + 3600, c: 1 };
 /** 방 하나. 출입증은 '맞는 것'을 good, 다른 교사의 것을 other 로 흉내 낸다(서명 확인은 위에서 따로 본다). */
 function room(withPass = true) {
@@ -376,7 +376,7 @@ describe('교사 방: 순위와 쓰임 알림', () => {
   it('방장이 깼다고 알리면 방이 아는 값(팩 · 스테이지 · 인원 · 방 제목 · 교사)과 방 서버가 잰 시간으로 순위에 올리고, 받은 등수를 모두에게 알린다', () => {
     const { r, t, a } = playing();
     r.say(t, { t: 'won', r: 3, ms: 83_450, title: '가짜 제목', players: 30, pack: 'x/y', teacher: OTHER }, 1000 + 83_600);
-    expect(r.ranks).toEqual([{ run: 3, pack: 'math/scale-equation', stage: 1, ms: 83_600, players: 3, title: '3학년 2반', teacher: TEACHER }]);   // 시간은 판이 열린 때(1초)부터 잰 값
+    expect(r.ranks).toEqual([{ run: 3, pack: 'math/graph-factory', stage: 1, ms: 83_600, players: 3, title: '3학년 2반', teacher: TEACHER }]);   // 시간은 판이 열린 때(1초)부터 잰 값
     r.core.ranked(3, 83_600, 3, true);
     expect(r.last(a, 'rank')).toEqual({ t: 'rank', r: 3, ms: 83_600, rank: 3, best: 1 });
     expect(JSON.stringify(a.got)).not.toContain(TEACHER);
@@ -468,13 +468,13 @@ describe('교사 방: 순위와 쓰임 알림', () => {
     r.say(t, { t: 'room', room: { ...INFO, stage: 30, run: 4 } }, 2000);                    // 방 정보로는 받는 값이지만(99 까지) 바깥으로는 알리지 않는다
     r.say(t, { t: 'won', r: 4, ms: 5000 }, 7000);
     r.say(t, { t: 'room', room: { ...INFO, pack: 'new/pack', stage: 30, run: 5 } }, 8000);
-    expect([r.ranks, r.uses.map(u => u.pack)]).toEqual([[], ['math/scale-equation']]);
+    expect([r.ranks, r.uses.map(u => u.pack)]).toEqual([[], ['math/graph-factory']]);
     r.say(t, { t: 'room', room: { ...INFO, stage: 29, run: 6 } }, 9000);
     r.say(t, { t: 'won', r: 6, ms: 5000 }, 14_000);
     expect(r.ranks.map(x => x.stage)).toEqual([29]);
     for (const pack of ['../x', 'a/b/c', 'A/b', 'x'.repeat(70)]) {                        // 모양이 어긋난 팩 이름은 방 정보에서부터 받지 않는다
       r.say(t, { t: 'room', room: { ...INFO, pack, run: 7 } }, 15_000);
-      expect(r.core.info.pack).toBe('math/scale-equation');
+      expect(r.core.info.pack).toBe('math/graph-factory');
     }
   });
 
@@ -524,7 +524,7 @@ describe('교사 방: 순위와 쓰임 알림', () => {
     r.say(a, { t: 'won', r: 5, ms: 6000 }, 36_000);                                        // 방장이 아닌 기기가 알린 것은 받지 않는다
     expect(r.ranks).toEqual([]);
     r.say(back, { t: 'won', r: 5, ms: 6000 }, 36_000);
-    expect(r.ranks).toEqual([{ run: 5, pack: 'math/scale-equation', stage: 1, ms: 6000, players: 3, title: '3학년 2반', teacher: TEACHER }]);
+    expect(r.ranks).toEqual([{ run: 5, pack: 'math/graph-factory', stage: 1, ms: 6000, players: 3, title: '3학년 2반', teacher: TEACHER }]);
     r.say(back, { t: 'won', r: 5, ms: 6000 }, 36_500);                                     // 같은 판은 한 번만
     expect(r.ranks.length).toBe(1);
   });
@@ -548,14 +548,14 @@ describe('교사 방: 순위와 쓰임 알림', () => {
 
   it('쓰임 알림: 교사 방에서 어떤 팩이 처음 열릴 때 팩마다 한 번. 학생끼리 연 방에서는 부르지 않는다', () => {
     const { r, t } = playing();
-    expect(r.uses).toEqual([{ pack: 'math/scale-equation', teacher: TEACHER }]);
+    expect(r.uses).toEqual([{ pack: 'math/graph-factory', teacher: TEACHER }]);
     r.say(t, { t: 'room', room: { ...INFO, stage: 2, run: 4 } }, 2000);
     r.say(t, { t: 'room', room: { ...INFO, stage: -1, run: 4 } }, 3000);
     r.say(t, { t: 'room', room: { ...INFO, pack: 'etc/tutorial', stage: -1, run: 4 } }, 3500);   // 고르는 중에는 알리지 않는다
     expect(r.uses.length).toBe(1);
     r.say(t, { t: 'room', room: { ...INFO, pack: 'etc/tutorial', stage: 0, run: 5 } }, 4000);
     r.say(t, { t: 'room', room: { ...INFO, run: 6 } }, 5000);
-    expect(r.uses).toEqual([{ pack: 'math/scale-equation', teacher: TEACHER }, { pack: 'etc/tutorial', teacher: TEACHER }]);
+    expect(r.uses).toEqual([{ pack: 'math/graph-factory', teacher: TEACHER }, { pack: 'etc/tutorial', teacher: TEACHER }]);
     const kids = room(), k = kids.enter('학생', { mode: 'create' });
     kids.say(k, { t: 'room', room: INFO }, 1000);
     expect(kids.uses).toEqual([]);
@@ -572,7 +572,7 @@ describe('교사 방: 순위와 쓰임 알림', () => {
     r.say(t, { t: 'room', room: INFO }, 500);
     expect(r.uses).toEqual([]);
     r.say(t, { t: 'pass', v: 'good', title: '반', rank: 0 }, 600);
-    expect(r.uses).toEqual([{ pack: 'math/scale-equation', teacher: TEACHER }]);
+    expect(r.uses).toEqual([{ pack: 'math/graph-factory', teacher: TEACHER }]);
   });
 
   it('도름스에 적는 주소는 이 컴퓨터의 주소로만 바꿀 수 있다(잘못 넣은 값 때문에 비밀값이 다른 곳으로 가지 않게)', () => {
@@ -793,10 +793,10 @@ describe('연결(net): 교사 방', () => {
     a.sendWon(15_000);                                                                     // 손님은 보내지도 않는다
     t.sendWon(15_000.4);
     await tick();
-    expect(net.ranks).toMatchObject([{ run: 3, pack: 'math/scale-equation', stage: 1, players: 2, title: '3학년 2반', teacher: TEACHER }]);
+    expect(net.ranks).toMatchObject([{ run: 3, pack: 'math/graph-factory', stage: 1, players: 2, title: '3학년 2반', teacher: TEACHER }]);
     expect(Math.abs(net.ranks[0].ms - 15_300)).toBeLessThan(200);                           // 적히는 시간은 방 서버가 잰 값
     expect(got).toEqual([{ run: 3, ms: net.ranks[0].ms, rank: 2, best: true }]);
-    expect(net.uses).toEqual([{ pack: 'math/scale-equation', teacher: TEACHER }]);
+    expect(net.uses).toEqual([{ pack: 'math/graph-factory', teacher: TEACHER }]);
     t.leave(); a.leave();
   });
 

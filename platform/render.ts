@@ -134,7 +134,7 @@ function drawStage(c: CanvasRenderingContext2D, w: World, now: number, me: numbe
   for (const g of s.signs) drawSign(c, g.x, g.y);
   const order = w.players.filter(p => !p.inDoor).sort((a, b) => Number(a.i === me) - Number(b.i === me));
   for (const p of order) drawDoreumi(c, p, now);
-  drawGraphFront(c, s.graph, w.g, now);
+  drawGraphFront(c, s.graph, w.g, now, (x, y) => { const cc = Math.floor(x / T), r = Math.floor(y / T); return cc >= 0 && cc < s.cols && r >= 0 && r < s.rows && !!s.solid[r * s.cols + cc]; });
   // 머리 위에 무언가를 든 도름이는 번호표를 옆으로 비켜 적는다(손잡이를 가리지 않게)
   const busy = (p: Player) => w.g.pieces.some(pc => pc.state === 'held' && pc.holders[0] === p.i) || w.g.bucket?.holder === p.i;
   for (const p of order) tag(c, p, p.i === me, busy(p) ? -p.h - 26 : 0, names?.[p.i]);

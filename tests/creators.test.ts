@@ -16,8 +16,8 @@ const pack = (id: string, nickname: string, extra: Partial<Pack> = {}) => ({ id,
 
 describe('도름스 응답 검사(parseCreators)', () => {
   it('계약대로 온 값은 그대로 받는다', () => {
-    const m = parseCreators({ creators: { 'math/scale-equation': good } });
-    expect(m.get('math/scale-equation')).toEqual(good);
+    const m = parseCreators({ creators: { 'math/graph-factory': good } });
+    expect(m.get('math/graph-factory')).toEqual(good);
   });
 
   it('모양이 이상하면 빈 모음이다', () => {

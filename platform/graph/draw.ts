@@ -55,11 +55,14 @@ function poly(c: CanvasRenderingContext2D, pc: Piece, width: number, color: stri
   }
 }
 
-function drawPiece(c: CanvasRenderingContext2D, pc: Piece, now: number) {
+function drawPiece(c: CanvasRenderingContext2D, pc: Piece, now: number, solid: (x: number, y: number) => boolean) {
   const fixed = pc.state === 'fixed';
-  // 손잡이(지나는 점에서 아래로, 늘 세워 든다)
-  c.fillStyle = N; c.fillRect(Math.round(pc.x) - 3, Math.round(pc.y) - HANDLE, 6, HANDLE);
-  c.fillStyle = PALETTE.door; c.fillRect(Math.round(pc.x) - 1, Math.round(pc.y) - HANDLE + 2, 2, HANDLE - 4);
+  // 손잡이(지나는 점에서 아래로, 늘 세워 든다). 땅에 놓인 조각은 땅 위로 나온 만큼만 그린다
+  let len = HANDLE;
+  if (pc.state !== 'held') for (let k = 2; k <= HANDLE; k += 2) if (solid(pc.x, pc.y - HANDLE + k)) { len = k; break; }
+  c.fillStyle = N; c.fillRect(Math.round(pc.x) - 3, Math.round(pc.y) - HANDLE, 6, len);
+  c.fillStyle = PALETTE.door; c.fillRect(Math.round(pc.x) - 1, Math.round(pc.y) - HANDLE + 2, 2, Math.max(0, len - 4));
+  const gy = pc.y - HANDLE + len;
   poly(c, pc, 7, N);
   poly(c, pc, 3, fixed ? PALETTE.grass : pc.ignore > 0 ? PALETTE.skyLow : Y);
   // 지나는 점과 잡는 곳
@@ -67,8 +70,8 @@ function drawPiece(c: CanvasRenderingContext2D, pc: Piece, now: number) {
   c.fillStyle = PALETTE.button; c.fillRect(Math.round(pc.x) - 2, Math.round(pc.y) - HANDLE - 2, 4, 4);
   if (pc.state !== 'held' && !fixed) {
     const bob = Math.floor(now / 400) % 2;
-    c.fillStyle = N; c.fillRect(Math.round(pc.x) - 5, Math.round(pc.y) - 3 + bob, 10, 6);
-    c.fillStyle = Y; c.fillRect(Math.round(pc.x) - 3, Math.round(pc.y) - 1 + bob, 6, 2);
+    c.fillStyle = N; c.fillRect(Math.round(pc.x) - 5, Math.round(gy) - 3 + bob, 10, 6);
+    c.fillStyle = Y; c.fillRect(Math.round(pc.x) - 3, Math.round(gy) - 1 + bob, 6, 2);
   }
   if (pc.state === 'held' && pc.shape.need > 1) {
     const b = pieceBox(pc);
@@ -213,9 +216,9 @@ export function drawGraphBack(c: CanvasRenderingContext2D, gs: GraphStage, g: Gr
   drawGrid(c, cols, rows);
   drawStations(c, gs, g, now);
 }
-export function drawGraphFront(c: CanvasRenderingContext2D, gs: GraphStage, g: GraphWorld, now: number) {
+export function drawGraphFront(c: CanvasRenderingContext2D, gs: GraphStage, g: GraphWorld, now: number, solid: (x: number, y: number) => boolean) {
   if (!gs.factories.length) return;
-  for (const pc of g.pieces) drawPiece(c, pc, now);
+  for (const pc of g.pieces) drawPiece(c, pc, now, solid);
   drawSled(c, g);
   drawBucket(c, g);
   drawBodies(c, g, now);

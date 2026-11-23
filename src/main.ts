@@ -70,7 +70,7 @@ function home(family = '전체') {
 // ---------- 팩 화면: 스테이지와 인원 고르기 ----------
 function packScreen(p: Pack, people = 4, review: Review | null = null) {
   stop?.(); stop = null;
-  const counts = [...new Set([p.players.min, 4, 8, p.players.max])].filter(n => n >= p.players.min && n <= p.players.max).sort((a, b) => a - b);
+  const counts = [...new Set([p.players.min, 2, 4, 8, p.players.max])].filter(n => n >= p.players.min && n <= p.players.max).sort((a, b) => a - b);
   if (!counts.includes(people)) people = counts[0];
   const rows = p.stages.map((s, i) => `<button class="ar-row w-stage" data-stage="${i}"><span class="ar-count w-stageno">${String(i + 1).padStart(2, '0')}</span><span class="ar-label">${esc(s.name)}</span><span class="ar-count">${levelWord(s.difficulty)}</span></button>`).join('');
   const open = review?.state === 'open';

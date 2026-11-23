@@ -1,0 +1,32 @@
+{
+  "legend": {
+    "p": {
+      "type": "press"
+    },
+    "q": {
+      "type": "desk"
+    },
+    "o": {
+      "type": "out",
+      "max": 3
+    },
+    "s": {
+      "type": "stand"
+    },
+    "k": {
+      "type": "slot",
+      "latex": "\\cos\\left(x-0.5\\right)-\\frac{1}{3}",
+      "a": -2.6416,
+      "b": 3.6416,
+      "tol": 0.22,
+      "opens": [
+        "w"
+      ]
+    },
+    "w": {
+      "type": "bridge",
+      "mode": "vanish"
+    }
+  },
+  "hint": "자물쇠의 홈 모양과 꼭 같은 그래프를 거치대에 꽂으면 벽이 열려요"
+}

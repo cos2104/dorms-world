@@ -36,8 +36,8 @@ export function buildPack(meta: PackJson, file: (path: string) => string | undef
     try { def = JSON.parse((file(`stages/${s.file}.json`) ?? '{}').replace(/^\uFEFF/, '')); } catch { throw new Error(`stages/${s.file}.json 을 읽을 수 없어요(JSON 형식 확인).`); }
     return parseStage(file(`stages/${s.file}.map.txt`) ?? '', def, sprites);
   });
-  const players = { min: Math.max(2, Math.floor(Number(meta.players?.min)) || 2), max: Math.min(30, Math.floor(Number(meta.players?.max)) || 30) };
-  if (players.min > players.max) players.min = players.max = Math.max(2, Math.min(30, players.max));   // 거꾸로 적힌 인원으로 0명 판이 열리지 않게
+  const players = { min: Math.max(1, Math.floor(Number(meta.players?.min)) || 2), max: Math.min(30, Math.floor(Number(meta.players?.max)) || 30) };
+  if (players.min > players.max) players.min = players.max = Math.max(1, Math.min(30, players.max));   // 거꾸로 적힌 인원으로 0명 판이 열리지 않게
   const stages = meta.stages.map(s => ({ file: String(s.file), name: String(s.name).slice(0, 40), difficulty: Math.min(5, Math.max(1, Math.floor(Number(s.difficulty)) || 1)) }));
   const text = (v: unknown, max: number) => String(v ?? '').slice(0, max);
   return {

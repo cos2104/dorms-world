@@ -33,7 +33,7 @@ describe.each(packs)('팩 $id', ({ id, dir }) => {
     expect(FAMILIES, `family 는 오락실 교과 묶음 이름이어야 해요: ${meta.family}`).toContain(meta.family);
     expect(String(meta.educationalIntent ?? '').length, '교육적 의도를 적어 주세요').toBeGreaterThan(0);
     expect(String(meta.creator?.nickname ?? '').length, '만든 사람 닉네임이 필요해요').toBeGreaterThan(0);
-    expect(meta.players.min).toBeGreaterThanOrEqual(2);
+    expect(meta.players.min).toBeGreaterThanOrEqual(1);
     expect(meta.players.max).toBeLessThanOrEqual(30);
     expect(meta.players.min).toBeLessThanOrEqual(meta.players.max);
     expect(meta.stages.length).toBeGreaterThan(0);

@@ -45,7 +45,7 @@ describe('지도 읽기', () => {
   });
   it('단추 없는 다리는 받지 않는다', () => {
     expect(() => parseStage(FLAT, { legend: { a: { type: 'button' }, x: { type: 'bridge' } } })).toThrow(/opens/);
-    expect(() => parseStage(FLAT.replace('a', '.'), { legend: { x: { type: 'bridge' } } })).toThrow(/여는 단추나 저울이 없어요/);
+    expect(() => parseStage(FLAT.replace('a', '.'), { legend: { x: { type: 'bridge' } } })).toThrow(/여는 단추나 장치가 없어요/);
   });
   it('줄 길이가 다르면 받지 않는다', () => {
     expect(() => parseStage(FLAT + '\n###', { legend: LEGEND })).toThrow(/줄 길이/);

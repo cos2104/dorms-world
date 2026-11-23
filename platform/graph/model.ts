@@ -16,8 +16,9 @@ export const RANGE_MAX = 16;               // x 범위 너비의 상한(칸)
 export const EXTENT_MAX = 22;              // 돌린 뒤 조각이 차지하는 가로·세로의 상한(칸)
 export const PIECE_MAX = 10;               // 한 스테이지에 있을 수 있는 조각 수
 export const BODY_MAX = 90;                // 한 번에 날아다닐 수 있는 공·물방울·벌 수
-export const BUCKET_CAP = 8;
+export const BUCKET_CAP = 12;
 const G_BODY = 900;
+export const SLED_PUSH = 150;   // 썰매를 출발시키면 처음에 이만큼(px/초) 밀어 준다
 
 export type Kind = 'blue' | 'red' | 'rain' | 'bee' | 'sled';
 export type Rect = { x: number; y: number; w: number; h: number };
@@ -135,8 +136,9 @@ export type Piece = {
   holders: number[];               // 든 사람(맨 앞이 앞장선 사람)
   stand: number;                   // 꽂힌 거치대(-1 없음)
   ignore: number;                  // 쏟는 중: 이 시간 동안 공이 이 조각에 안 걸린다
+  mvx?: number; mvy?: number;      // 이번 걸음의 빠르기(든 채로 움직일 때). 공이 그릇에 실려 가게 충돌에 쓴다
 };
-export type Body = { k: Kind; x: number; y: number; vx: number; vy: number; r: number; t: number; hit: number; bounced: boolean; skip?: number };
+export type Body = { k: Kind; x: number; y: number; vx: number; vy: number; r: number; t: number; hit: number; bounced: boolean; skip?: number; rest?: number; ny?: number };
 export type Factory = { latex: string; note: string; noteT: number; made: number };
 export type Round = { on: boolean; t: number; score: number; hp: number[]; leaks: number[]; note: string; noteT: number; spawnT: number[] };
 export type SledState = { x: number; y: number; vx: number; vy: number; on: boolean; run: boolean; rider: number; t: number; still: number; lit: number; grounded: boolean };
@@ -189,7 +191,7 @@ export const RNOTE_LIST: readonly string[] = Object.values(RNOTE);
 
 export const FNOTE = {
   noFormula: '찍는 방에서 식을 먼저 넣어 주세요', made: '그래프를 찍었어요. 출구에 나왔어요', set: '식을 넣었어요. 손잡이 방에서 점과 범위를 정해 주세요',
-  far: '방 안에 서서 넣어 주세요', full: '찍은 그래프가 너무 많아요. 안 쓰는 것을 출구에 두면 새것으로 바뀌어요',
+  far: '방 안에 서서 넣어 주세요', long: '식이 너무 길어요. 조금 줄여 주세요', full: '찍은 그래프가 너무 많아요. 안 쓰는 것을 출구에 두면 새것으로 바뀌어요',
 } as const;
 
 /**
@@ -204,7 +206,9 @@ export function applyOrder(gs: GraphStage, g: GraphWorld, order: Order, near: bo
   if (order.k === 'f') {
     const r = readFormula(order.latex);
     if (!r.ok) return say(r.reason);
-    fs.latex = canonLatex(r.formula);
+    const canon = safeCanon(r.formula);
+    if (!canon) return say(FNOTE.long);
+    fs.latex = canon;
     return say(FNOTE.set);
   }
   if (!fs.latex) return say(FNOTE.noFormula);
@@ -233,9 +237,10 @@ export function applyOrder(gs: GraphStage, g: GraphWorld, order: Order, near: bo
 const round3 = (v: number) => Math.round(v * 1000) / 1000;
 
 // ---------- 조각을 판 위 선분으로 ----------
-export type Seg = { x1: number; y1: number; x2: number; y2: number; pi: number };
+export type Seg = { x1: number; y1: number; x2: number; y2: number; pi: number; vx: number; vy: number };
 export function pieceSegs(p: Piece, pi: number, out: Seg[]) {
-  for (const run of p.shape.runs) for (let i = 1; i < run.length; i++) out.push({ x1: p.x + run[i - 1][0], y1: p.y + run[i - 1][1], x2: p.x + run[i][0], y2: p.y + run[i][1], pi });
+  const vx = p.mvx ?? 0, vy = p.mvy ?? 0;
+  for (const run of p.shape.runs) for (let i = 1; i < run.length; i++) out.push({ x1: p.x + run[i - 1][0], y1: p.y + run[i - 1][1], x2: p.x + run[i][0], y2: p.y + run[i][1], pi, vx, vy });
 }
 export const pieceBox = (p: Piece): Rect => ({ x: p.x + p.shape.box.x, y: p.y + p.shape.box.y, w: p.shape.box.w, h: p.shape.box.h });
 
@@ -310,12 +315,14 @@ export function graphActionAt(gs: GraphStage, g: GraphWorld, h: Host, pi: number
     return { do: 'bucket-drop' };
   }
   // 손잡이 끝이 머리 가까이 있는 조각
-  let best = -1, bd = 34;
+  // 손잡이 끝(잡는 곳)이 몸 가까이(옆 24px, 머리 위 34px ~ 발밑 8px) 있는 조각 가운데 가장 가까운 것
+  let best = -1, bd = Infinity;
   g.pieces.forEach((pc, i) => {
     if (pc.state === 'fixed' || pc.state === 'fall') return;
-    if (pc.state === 'held' && pc.holders.length >= 6) return;
-    const d = Math.hypot(pc.x - cx, pc.y - (p.y + 4));
-    if (d < bd) { bd = d; best = i; }
+    if (pc.state === 'held' && (pc.holders.length >= 6 || pc.holders.includes(pi))) return;
+    const dx = Math.abs(pc.x - cx), dy = pc.y < p.y - 34 ? p.y - 34 - pc.y : pc.y > p.y + p.h + 8 + HANDLE ? pc.y - p.y - p.h - 8 - HANDLE : 0;   // 바닥에 놓인 조각은 손잡이가 땅에 묻혀 있다
+    if (dx > 24 + p.w / 2 || dy > 0) return;
+    if (dx < bd) { bd = dx; best = i; }
   });
   if (best >= 0) return { do: 'grab', piece: best };
   if (b && b.holder < 0 && Math.abs(b.x - cx) < 26 && Math.abs(b.y - (p.y + p.h - 10)) < 34) return { do: 'bucket-take' };
@@ -351,6 +358,8 @@ export function graphTick(gs: GraphStage, g: GraphWorld, h: Host, dt: number, op
     const lead = h.players[pc.holders[0]];
     if (!lead) { pc.state = 'fall'; pc.holders = []; continue; }
     const hd = headOf(lead);
+    pc.mvx = Math.max(-600, Math.min(600, (hd.x - pc.x) / dt)); pc.mvy = Math.max(-900, Math.min(900, (hd.y - pc.y) / dt));
+    if (Math.abs(hd.x - pc.x) > 60 || Math.abs(hd.y - pc.y) > 90) pc.mvx = pc.mvy = 0;   // 되살아남처럼 멀리 건너뛴 것은 빠르기로 치지 않는다
     pc.x = hd.x; pc.y = hd.y;
     // 함께 든 사람이 멀어지면 손을 놓은 것으로 본다
     pc.holders = pc.holders.filter((i, k) => k === 0 || Math.abs(h.players[i].x - lead.x) < 3 * T);
@@ -358,6 +367,7 @@ export function graphTick(gs: GraphStage, g: GraphWorld, h: Host, dt: number, op
   }
   void speedOf;
   // 3) 떨어지는 조각
+  for (const pc of g.pieces) if (pc.state !== 'held') pc.mvx = pc.mvy = 0;
   for (const pc of [...g.pieces]) if (pc.state === 'fall') fallPiece(gs, g, h, pc, dt);
   // 4) 양동이
   const bk = g.bucket;
@@ -424,7 +434,7 @@ function doAction(gs: GraphStage, g: GraphWorld, h: Host, pi: number, act: GActi
     const rd = newRound(gs); rd.on = true; g.round = rd;
     g.bodies = g.bodies.filter(b => b.k === 'sled');
   } else if (act.do === 'sled' && g.sled && gs.sled) {
-    Object.assign(g.sled, sledHome(gs.sled), { run: true, rider: pi });
+    Object.assign(g.sled, sledHome(gs.sled), { run: true, rider: pi, vx: SLED_PUSH });
   }
 }
 
@@ -451,12 +461,14 @@ function fallPiece(gs: GraphStage, g: GraphWorld, h: Host, pc: Piece, dt: number
 /** 조각을 아래로 dy 만큼 옮길 때 실제로 갈 수 있는 거리. 곡선 점과 손잡이 끝이 땅이나 다른 조각 위에 닿으면 멈춘다. */
 function dropRoom(g: GraphWorld, h: Host, pc: Piece, dy: number): number {
   let room = dy;
-  const pts: [number, number][] = [[0, 0]];
+  // 곡선만 부딪힌다(손잡이는 땅에 닿으면 접힌다): 놓은 그래프가 손잡이에 받쳐 떠 있지 않고 바닥에 붙는다
+  const pts: [number, number][] = [];
   for (const run of pc.shape.runs) for (let i = 0; i < run.length; i += 2) pts.push(run[i]);
+  for (const run of pc.shape.runs) pts.push(run[run.length - 1]);
   for (const [lx, ly] of pts) {
     const x = pc.x + lx, y = pc.y + ly;
     if (x < 0 || x > h.stageW) continue;
-    for (let s = 0; s <= room; s += 3) if (h.solidAt(x, y + s + 1)) { room = Math.max(0, s); break; }
+    for (let s = 0; s <= room; s += 3) if (y + s + 1 >= 0 && h.solidAt(x, y + s + 1)) { room = Math.max(0, s); break; }   // 지도 위(하늘 밖)는 막힌 곳으로 치지 않는다
     for (const o of g.pieces) {
       if (o === pc || !standOn(o)) continue;
       for (const oy of curveYs(o, x)) if (oy >= y - 1 && oy - y < room + 1) room = Math.max(0, oy - y - 1);
@@ -503,21 +515,23 @@ function collide(b: Body, segs: Seg[], e: number, fr: number): number {
     const c = touch(b, s);
     if (!c) continue;
     b.x += c.nx * c.depth; b.y += c.ny * c.depth;
-    const vn = b.vx * c.nx + b.vy * c.ny;
+    // 움직이는 그래프(든 채 걷는 그릇)에 대해 상대 빠르기로 튕긴다: 그릇 벽이 공을 밀고 간다
+    const rx = b.vx - s.vx, ry = b.vy - s.vy, vn = rx * c.nx + ry * c.ny;
     if (vn < 0) {
-      b.vx -= (1 + e) * vn * c.nx; b.vy -= (1 + e) * vn * c.ny;
-      const tx = -c.ny, ty = c.nx, vt = b.vx * tx + b.vy * ty;
-      b.vx -= vt * fr * tx; b.vy -= vt * fr * ty;
+      let ux = rx - (1 + e) * vn * c.nx, uy = ry - (1 + e) * vn * c.ny;
+      const tx = -c.ny, ty = c.nx, vt = ux * tx + uy * ty;
+      ux -= vt * fr * tx; uy -= vt * fr * ty;
+      b.vx = ux + s.vx; b.vy = uy + s.vy;
     }
-    hit = s.pi;
+    hit = s.pi; b.ny = c.ny;
   }
   return hit;
 }
 
-function tileBounce(b: Body, h: Host, e: number): boolean {
+function tileBounce(b: Body, h: Host, e: number, damp = 0.9): boolean {
   if (!h.solidAt(b.x, b.y + b.r) && !h.solidAt(b.x, b.y - b.r) && !h.solidAt(b.x - b.r, b.y) && !h.solidAt(b.x + b.r, b.y)) return false;
   // 가장 가까운 빈 쪽으로 빼낸다
-  if (h.solidAt(b.x, b.y + b.r) && b.vy > 0) { b.y = Math.floor((b.y + b.r) / T) * T - b.r - 0.1; b.vy = -b.vy * e; b.vx *= 0.9; }
+  if (h.solidAt(b.x, b.y + b.r) && b.vy > 0) { b.y = Math.floor((b.y + b.r) / T) * T - b.r - 0.1; b.vy = -b.vy * e; b.vx *= damp; }
   else if (h.solidAt(b.x, b.y - b.r) && b.vy < 0) { b.y = Math.ceil((b.y - b.r) / T) * T + b.r + 0.1; b.vy = -b.vy * e; }
   if (h.solidAt(b.x + b.r, b.y) && b.vx > 0) { b.x = Math.floor((b.x + b.r) / T) * T - b.r - 0.1; b.vx = -b.vx * e; }
   else if (h.solidAt(b.x - b.r, b.y) && b.vx < 0) { b.x = Math.ceil((b.x - b.r) / T) * T + b.r + 0.1; b.vx = -b.vx * e; }
@@ -548,24 +562,34 @@ function moveBodies(gs: GraphStage, g: GraphWorld, h: Host, segs: Seg[], dt: num
       } else {
         b.vy = Math.min(b.k === 'rain' ? 420 : 620, b.vy + G_BODY * d);
         b.x += b.vx * d; b.y += b.vy * d;
-        const e = b.k === 'rain' ? 0 : 0.25, fr = b.k === 'rain' ? 0 : 0.02;
+        const e = b.k === 'rain' ? 0 : 0.25, fr = b.k === 'rain' ? 0.03 : 0.02;   // 빗물은 곡선을 따라 흐르다 낮은 곳에 고인다
         const hit = collide(b, segs, e, fr);
         if (hit >= 0) b.hit = hit;
         // 빗물: 곡선 위에서 거의 멈춘 채 오래 있으면 그 자리에서 아래로 샌다(평평한 홈통은 물을 모으지 못한다)
-        if (b.k === 'rain' && hit >= 0 && Math.hypot(b.vx, b.vy) < 40) { b.t += d * 2; if (b.t > 2.2) { b.skip = hit; b.vy = 60; b.t = 0; } }
+        // 빗물: 곡선 위에서 거의 멈춘 채 1초쯤 있으면 그 자리에서 아래로 떨어진다(가장 낮은 곳에서 떨어진다)
+        if (b.k === 'rain') { if (hit >= 0 && (b.ny ?? 0) < -0.985 && Math.hypot(b.vx - (segs.find(sg => sg.pi === hit)?.vx ?? 0), b.vy) < 30) { b.rest = (b.rest ?? 0) + d; if (b.rest > 1) { b.skip = hit; b.vy = 60; b.rest = 0; } } else b.rest = 0; }
         if (tileBounce(b, h, b.k === 'rain' ? 0 : 0.3)) { if (b.k === 'rain') gone = true; }
       }
       if (b.x < -40 || b.x > h.stageW + 40 || b.y > h.stageH + 40 || b.y < -200) gone = true;
     }
     if (gone) continue;
     // 도름이에게 맞음: 빨간 공과 벌은 잠깐 멈춰 세운다
+    // 빨간 공은 맞은 도름이를 멈춰 세우고 사라진다. 벌은 쏘고(멈춰 세우고) 그대로 꽃으로 간다(몸으로 막을 수 없다)
     if (b.k === 'red' || (b.k === 'bee' && !b.bounced)) {
-      const p = h.players.find(q => !q.inDoor && b.x > q.x - b.r && b.x < q.x + q.w + b.r && b.y > q.y - b.r && b.y < q.y + q.h + b.r);
-      if (p) { p.stun = 0.9; continue; }
+      const p = h.players.find(q => !q.inDoor && q.i !== b.hit && b.x > q.x - b.r && b.x < q.x + q.w + b.r && b.y > q.y - b.r && b.y < q.y + q.h + b.r);
+      if (p) { p.stun = 0.9; if (b.k === 'red') continue; b.hit = p.i; }
     }
     // 떨어진 채 오래 구르는 공은 사라진다
     if ((b.k === 'blue' || b.k === 'red') && b.t > 12) continue;
     keep.push(b);
+  }
+  // 공끼리는 겹치지 않게 조금씩 떼어 놓는다(그릇 바닥에 한 점으로 뭉치지 않게)
+  const balls = keep.filter(b => b.k === 'blue' || b.k === 'red');
+  for (let i = 0; i < balls.length; i++) for (let j = i + 1; j < balls.length; j++) {
+    const a = balls[i], c = balls[j], dx = c.x - a.x, dy = c.y - a.y, d = Math.hypot(dx, dy), R = a.r + c.r;
+    if (d >= R || d < 1e-6) continue;
+    const push = (R - d) / 2, nx = dx / d, ny = dy / d;
+    a.x -= nx * push; a.y -= ny * push; c.x += nx * push; c.y += ny * push;
   }
   g.bodies = keep;
 }
@@ -582,8 +606,8 @@ function sledTick(gs: GraphStage, g: GraphWorld, h: Host, segs: Seg[], dt: numbe
     const d = dt / 4;
     body.vy = Math.min(700, body.vy + G_BODY * d);
     body.x += body.vx * d; body.y += body.vy * d;
-    if (collide(body, segs, 0, 0.004) >= 0) s.grounded = true;
-    if (tileBounce(body, h, 0)) s.grounded = true;
+    if (collide(body, segs, 0, 0.0004) >= 0) s.grounded = true;
+    if (tileBounce(body, h, 0, 0.998)) s.grounded = true;
   }
   s.x = body.x; s.y = body.y + 9; s.vx = body.vx; s.vy = body.vy;
   // 표적: 차례대로 지나야 켜진다
@@ -610,7 +634,7 @@ function goalsTick(gs: GraphStage, g: GraphWorld, h: Host, dt: number) {
   gs.goals.forEach((go, i) => {
     if (g.done[i]) return;
     if (go.kind === 'basket') {
-      const need = h.need(go.need);
+      const need = go.need;   // 바구니에 넣을 공 수는 인원과 상관없이 정해 둔 그대로
       g.bodies = g.bodies.filter(b => {
         if ((b.k !== 'blue' && b.k !== 'red') || !near(go.rect, b.x, b.y, 2)) return true;
         rd.score = b.k === 'blue' ? rd.score + 1 : Math.max(0, rd.score - 2);
@@ -634,8 +658,9 @@ function goalsTick(gs: GraphStage, g: GraphWorld, h: Host, dt: number) {
     const bk = g.bucket;
     g.bodies = g.bodies.filter(b => {
       if (b.k !== 'rain') return true;
-      if (bk && bk.water < BUCKET_CAP && Math.abs(b.x - bk.x) < 13 && b.y > bk.y - 20 && b.y < bk.y - 4) { bk.water++; return false; }
-      if (go.rects.some(r => near(r, b.x, b.y, 2))) { rd.leaks[i]++; return false; }
+      if (bk && bk.water < BUCKET_CAP && Math.abs(b.x - bk.x) < 14 && b.y > bk.y - 30 && b.y < bk.y + 2) { bk.water++; return false; }
+      // 바닥에 닿은 물만 샌 것으로 센다(양동이 입구를 지나기 전에 세지 않게)
+      if (go.rects.some(r => b.x > r.x - 2 && b.x < r.x + r.w + 2 && b.y > r.y + r.h - 12 && b.y < r.y + r.h + 6)) { rd.leaks[i]++; return false; }
       return true;
     });
     if (rd.on && rd.leaks[i] > go.max) fail(gs, g, RNOTE.leak);
@@ -705,6 +730,21 @@ export function slotPoints(latex: string, a: number, b: number, ox: number, oy: 
     pts.push([ox + x * T, oy - y * T]);
   }
   return pts;
+}
+
+/**
+ * 다른 기기로 보낼 식: 검사한 나무에서 다시 쓴 수식만 쓴다(사람이 친 글자가 그대로 지나가지 않게).
+ * 다시 쓴 식이 너무 길거나 다시 읽히지 않으면 빈 글.
+ */
+export function safeCanon(f: Formula): string {
+  const c = canonLatex(f);
+  return c && c.length <= LATEX_MAX && readFormula(c).ok ? c : '';
+}
+/** 남이 보낸 식을 이 기기에서 쓸 때: 다시 읽어 다시 쓴 것만. 못 읽으면 빈 글. */
+export function trustLatex(latex: unknown): string {
+  if (typeof latex !== 'string' || !latex || latex.length > LATEX_MAX) return '';
+  const r = readFormula(latex);
+  return r.ok ? safeCanon(r.formula) : '';
 }
 
 /** 주문 결과 글이 '됐다'는 뜻인가(창을 닫아도 되는가). */

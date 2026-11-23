@@ -287,8 +287,8 @@ function tick(w: World, pads: (Pad | undefined)[], dt: number) {
     const under = p.vy > 0 ? touch : null;
     const onHead = !!under && p.y + p.h <= under.y + 2;
     const bonk = p.vy < 0 && !!touch && touch.y + touch.h <= p.y + 2;   // 머리 위에 친구가 서 있으면 못 뛰어오른다
-    // 그래프 조각 위: 내려오다가 곡선에 닿으면 선다(밑에서 뛰어오를 때는 지나간다)
-    const curve = p.vy >= 0 ? surfaceBelow(w.g, p.x + 3, p.x + p.w - 3, p.y + p.h - (p.onCurve ? 9 : 1), ny + p.h + (p.onCurve ? 9 : 0)) : null;
+    // 그래프 조각 위: 내려오다가 곡선에 닿으면 선다(밑에서 뛰어오를 때는 지나간다). 걷다가 발목 높이(9px)의 곡선은 계단처럼 올라선다
+    const curve = p.vy >= 0 ? surfaceBelow(w.g, p.x + 3, p.x + p.w - 3, p.y + p.h - (p.onCurve || p.on ? 9 : 1), ny + p.h + (p.onCurve ? 9 : 0)) : null;
     if (curve != null && !onHead && !blocked(w, { x: p.x, y: curve - p.h, w: p.w, h: p.h }, inside)) {
       p.y = curve - p.h; p.vy = 0; p.on = true; p.onCurve = true;
     } else if (blocked(w, ry, inside) || onHead || bonk) {

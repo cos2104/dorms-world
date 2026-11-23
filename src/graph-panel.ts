@@ -7,7 +7,7 @@ import { icon } from '../platform/icons';
 import { PALETTE } from '../platform/look';
 import { esc } from '../platform/text';
 import { readFormula, sampleRuns, type Formula } from '../platform/graph/expr';
-import { fmt, makeShape, pointProblem, rangeProblem, RANGE_MAX, type Shape } from '../platform/graph/model';
+import { fmt, makeShape, pointProblem, rangeProblem, trustLatex, RANGE_MAX, type Shape } from '../platform/graph/model';
 import { latexText } from '../platform/graph/draw';
 import type { Order } from '../platform/graph/order';
 
@@ -18,6 +18,9 @@ function loadMathLive() {
   ml ??= import('mathlive').then(m => {
     m.MathfieldElement.fontsDirectory = `${import.meta.env.BASE_URL}mathlive/fonts`;
     m.MathfieldElement.soundsDirectory = null;
+    // 식 안의 링크를 여는 길을 막는다(\href 같은 것은 식 검사에서도 거절된다)
+    const me = m.MathfieldElement as unknown as { openUrl?: (href: string) => void };
+    if ('openUrl' in me) me.openUrl = () => undefined;
   });
   return ml;
 }
@@ -128,7 +131,7 @@ export function openPanel(o: PanelOpts): () => void {
       mf.setAttribute('aria-label', '함수식 입력');
       mf.mathVirtualKeyboardPolicy = window.matchMedia('(pointer: coarse)').matches ? 'auto' : 'manual';
       mf.smartFence = true;
-      const cur = o.latex(); if (cur) mf.value = cur;
+      const cur = trustLatex(o.latex()); if (cur) mf.value = cur;   // 수식으로 다시 쓴 것만 넣는다
       mf.addEventListener('input', update);
       mf.addEventListener('keydown', (e: KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
       el.querySelector('.w-gp-mf')!.replaceChildren(mf);
@@ -136,7 +139,7 @@ export function openPanel(o: PanelOpts): () => void {
       setTimeout(() => mf?.focus(), 30);
     }, () => say('식 입력기를 불러오지 못했어요. 새로 고침해 주세요'));
   } else {
-    const cur = o.latex(), f = cur ? readFormula(cur) : null;
+    const cur = trustLatex(o.latex()), f = cur ? readFormula(cur) : null;
     el.querySelector('.w-gp-cur')!.textContent = cur ? `y = ${latexText(cur)}` : '아직 없어요';
     const lift = el.querySelector<HTMLCanvasElement>('.w-gp-lift canvas')!;
     const inputs = [...el.querySelectorAll<HTMLInputElement>('input[data-v]')];

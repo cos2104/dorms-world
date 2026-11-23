@@ -8,7 +8,8 @@ import { describe, expect, it } from 'vitest';
 import { colorFor } from '../platform/identity';
 import { joinRoom, listPublic, type Down, type RoomLink } from '../platform/net';
 import { CLOSE, IDLE_MS, LIMITS, MAX_SEATS, PublicList, RoomCore, cleanPad, cleanRoomInfo, originAllowed, readJoinQuery, type JoinQuery, type RoomInfo, type Saved } from '../platform/room-rules';
-import { NOTE, NOTE_LIST, createWorld, dividedNote, removePlayer, step, type Pad, type World } from '../platform/sim';
+import { createWorld, removePlayer, step, type Pad, type World } from '../platform/sim';
+import { RNOTE, RNOTE_LIST } from '../platform/graph/model';
 import { parseStage, type StageJson } from '../platform/stage';
 import { SNAP_EVERY, applyWire, blend, newTrack, pushWire, readWire, toWire, wireSeats, type Wire } from '../platform/sync';
 
@@ -74,14 +75,13 @@ describe('가운데 사람이 나간다(removePlayer)', () => {
     expect(w.key.holder).toBe(2);
   });
 
-  it('든 구슬은 꺼낸 접시로 돌아간다(식이 사라지지 않는다)', () => {
-    const w = createWorld(load('math/scale-equation', '01'), people(3), 4);
-    const before = [...w.scales[0].line];
-    w.scales[0].line[1]--;                                // 왼쪽 접시에서 구슬 하나를 들었다
-    w.players[2].carry = { kind: 'marble', scale: 0, from: 0 };
+  it('나간 사람이 들고 있던 그래프는 떨어지고, 함께 들던 사람들의 번호는 당겨진다', () => {
+    const w = createWorld(load('math/graph-factory', '02'), people(4), 4);
+    w.g.pieces.push({ id: 1, fac: 0, spec: { latex: '0', a: 0, b: 3, x0: 0 }, shape: { runs: [[[0, -26], [90, -26]]], need: 1, arc: 3, box: { x: 0, y: -26, w: 90, h: 26 } }, x: 100, y: 200, vy: 0, state: 'held', holders: [1, 3], stand: -1, ignore: 0 });
     removePlayer(w, 2);
-    expect(w.scales[0].line).toEqual(before);
-    expect(w.players.every(p => !p.carry)).toBe(true);
+    expect(w.g.pieces[0].holders).toEqual([1, 2]);
+    removePlayer(w, 1);
+    expect(w.g.pieces[0].state).toBe('fall');
   });
 
   it('마지막 한 명이 나가도 무너지지 않고, 빈 세계는 끝난 것으로 치지 않는다', () => {
@@ -106,7 +106,7 @@ describe('세계 요약(sync)', () => {
     return w;
   }
 
-  it.each([['etc/tutorial', '01'], ['etc/tutorial', '02'], ['math/scale-equation', '01'], ['math/scale-equation', '05']])('%s %s: 요약을 덮어쓴 손님 세계가 방장 세계와 같은 요약을 낸다', (pack, file) => {
+  it.each([['etc/tutorial', '01'], ['etc/tutorial', '02'], ['math/graph-factory', '03'], ['math/graph-factory', '05']])('%s %s: 요약을 덮어쓴 손님 세계가 방장 세계와 같은 요약을 낸다', (pack, file) => {
     for (const seed of [1, 2, 3]) {
       const host = busy(pack, file, 4, seed, 60 * 12);
       const wire = readWire(JSON.parse(JSON.stringify(toWire(host, seats, 7, 99))));
@@ -114,10 +114,10 @@ describe('세계 요약(sync)', () => {
       const guest = createWorld(host.stage, people(4), seed);   // 같은 스테이지, 같은 씨앗
       expect(applyWire(guest, wire!)).toBe(true);
       expect(toWire(guest, seats, 7, 99)).toEqual(wire);
-      // 화면에 그려지는 것들이 같다: 풀이 판 줄, 알림, 레버 자리, 든 것, 다리, 문
-      expect(guest.scales.map(s => [s.lines, s.line, s.mode, s.tilt, s.solved, s.noteT > 0 ? s.note : ''])).toEqual(host.scales.map(s => [s.lines, s.line, s.mode, s.tilt, s.solved, s.noteT > 0 ? s.note : '']));
-      expect(guest.scales.map(s => s.x)).toEqual(host.scales.map(s => s.x));
-      expect(guest.players.map(p => p.carry)).toEqual(host.players.map(p => p.carry));
+      // 화면에 그려지는 것들이 같다: 그래프 조각, 공·물방울, 판 알림, 다리, 문
+      expect(guest.g.pieces.map(q => [q.id, q.state, q.holders])).toEqual(host.g.pieces.map(q => [q.id, q.state, q.holders]));
+      expect(guest.g.bodies.map(b => b.k)).toEqual(host.g.bodies.map(b => b.k));
+      expect([guest.g.round.on, guest.g.round.score, guest.g.round.noteT > 0 ? guest.g.round.note : '']).toEqual([host.g.round.on, host.g.round.score, host.g.round.noteT > 0 ? host.g.round.note : '']);
       expect([...guest.active].sort()).toEqual([...host.active].sort());
       expect([guest.doorOpen, guest.won, guest.key.holder, guest.key.used]).toEqual([host.doorOpen, host.won, host.key.holder, host.key.used]);
       guest.players.forEach((p, i) => { expect(Math.abs(p.x - host.players[i].x)).toBeLessThanOrEqual(0.05); expect(Math.abs(p.y - host.players[i].y)).toBeLessThanOrEqual(0.05); });
@@ -125,13 +125,14 @@ describe('세계 요약(sync)', () => {
   });
 
   it('방장이 바뀌어도 이어 간다: 요약을 받은 손님 세계를 그대로 굴리면 방장 세계와 같이 나아간다', () => {
-    const host = busy('math/scale-equation', '02', 3, 5, 60 * 6);
+    const host = busy('math/graph-factory', '03', 3, 5, 60 * 6);
     const guest = createWorld(host.stage, people(3), 5);
     applyWire(guest, toWire(host, [0, 1, 2], 1, 1));
     const pads = (f: number): Pad[] => [{ m: 1, j: f % 50 === 0, jn: Math.floor(f / 50) }, { m: -1, j: false }, { m: 0, j: false }];
     run(host, pads, 120); run(guest, pads, 120);
     guest.players.forEach((p, i) => { expect(Math.abs(p.x - host.players[i].x)).toBeLessThan(3); expect(Math.abs(p.y - host.players[i].y)).toBeLessThan(3); });
-    expect(guest.scales.map(s => s.lines)).toEqual(host.scales.map(s => s.lines));
+    expect(guest.g.round.score).toEqual(host.g.round.score);
+    expect(guest.g.bodies.length).toEqual(host.g.bodies.length);
   });
 
   it('사람 수와 색은 요약의 자리 번호를 따른다(가운데 사람이 빠진 뒤에도)', () => {
@@ -145,12 +146,12 @@ describe('세계 요약(sync)', () => {
   });
 
   it('다른 스테이지의 요약이나 모양이 어긋난 요약은 쓰지 않는다', () => {
-    const a = createWorld(load('etc/tutorial', '01'), people(2), 1), b = createWorld(load('math/scale-equation', '05'), people(2), 1);
+    const a = createWorld(load('etc/tutorial', '01'), people(2), 1), b = createWorld(load('math/graph-factory', '05'), people(2), 1);
     const wire = toWire(b, [0, 1], 1, 1), keep = toWire(a, [0, 1], 1, 1);
     expect(applyWire(a, wire)).toBe(false);
     expect(toWire(a, [0, 1], 1, 1)).toEqual(keep);
     const bad: unknown[] = [null, 5, 'x', {}, { ...wire, p: [1, 2, 3] }, { ...wire, p: wire.p.map(() => 'a') }, { ...wire, f: 9 }, { ...wire, k: [1, 2] }, { ...wire, a: 'x'.repeat(100) },
-      { ...wire, p: Array(31 * 8).fill(0) }, { ...wire, s: [[0, 0, 0, 0, 0, 0, 0, 1, 1, 2]] }, { ...wire, s: [[0, 0, 0, 0, 0, 0, 2, '방장이 지어낸 글', 1, 0, 0, 3, 1, 0, 0, 3]] }, { ...wire, s: [[0, 0, 0, 0, 0, 0, 2, 999, 1, 0, 0, 3, 1, 0, 0, 3]] }, { ...wire, t: Infinity }, { ...wire, c: [NaN, 0, 0, 0] }, { ...wire, p: [40, 0, 0, 0, 0, 0, 0, 0] }];
+      { ...wire, p: Array(31 * 9).fill(0) }, { ...wire, g: null }, { ...wire, g: { ...wire.g, b: [99, 0, 0, 0, 0, 0, 0] } }, { ...wire, g: { ...wire.g, r: ['방장이 지어낸 글', 0, 0, 0, 0] } }, { ...wire, t: Infinity }, { ...wire, c: [NaN, 0, 0, 0] }, { ...wire, p: [40, 0, 0, 0, 0, 0, 0, 0, 0] }];
     for (const x of bad) expect(readWire(x), JSON.stringify(x)?.slice(0, 60)).toBeNull();
     // 지도 밖의 자리는 지도 가장자리로 당겨진다(그리는 쪽이 터무니없는 자리를 그리지 않게)
     const far = { ...keep, p: keep.p.slice() }; far.p[1] = 1e9; far.p[2] = -1e9;
@@ -159,30 +160,29 @@ describe('세계 요약(sync)', () => {
     expect(a.players[0].y).toBeGreaterThan(-121);
   });
 
-  it('저울 알림은 글이 아니라 번호로 간다: 방장이 다른 화면에 아무 글이나 띄울 수 없다', () => {
-    const host = createWorld(load('math/scale-equation', '02'), people(2), 3), guest = createWorld(host.stage, people(2), 3);
-    for (const text of [...NOTE_LIST, dividedNote(2), dividedNote(12), dividedNote(30)]) {
-      host.scales[0].note = text; host.scales[0].noteT = 2;
+  it('판 알림은 글이 아니라 번호로 간다: 방장이 다른 화면에 아무 글이나 띄울 수 없다', () => {
+    const host = createWorld(load('math/graph-factory', '05'), people(2), 3), guest = createWorld(host.stage, people(2), 3);
+    for (const text of RNOTE_LIST) {
+      host.g.round.note = text; host.g.round.noteT = 2;
       const wire = readWire(JSON.parse(JSON.stringify(toWire(host, [0, 1], 1, 1))))!;
-      expect(typeof wire.s[0][7], text).toBe('number');
-      expect(wire.s[0][7], text).toBeGreaterThan(0);
+      expect(typeof wire.g.r[3], text).toBe('number');
+      expect(wire.g.r[3], text).toBeGreaterThan(0);
       applyWire(guest, wire);
-      expect(guest.scales[0].note).toBe(text);
+      expect(guest.g.round.note).toBe(text);
     }
-    expect(NOTE_LIST).toContain(NOTE.spilled);
-    // 목록에 없는 글은 실리지 않고, 모르는 번호는 빈 글이 된다
-    host.scales[0].note = '아무 글'; host.scales[0].noteT = 2;
+    expect(RNOTE_LIST).toContain(RNOTE.leak);
+    host.g.round.note = '아무 글'; host.g.round.noteT = 2;
     const wire = toWire(host, [0, 1], 1, 2);
-    expect(wire.s[0][7]).toBe(0);
-    for (const code of [0, NOTE_LIST.length + 1, 99, 100, 101, 131]) {
-      const forged = readWire({ ...wire, s: [wire.s[0].map((v, i) => (i === 7 ? code : v))] });
-      if (!forged) { expect(code).toBe(131); continue; }
+    expect(wire.g.r[3]).toBe(0);
+    for (const code of [RNOTE_LIST.length + 1, 99]) {
+      const forged = readWire({ ...wire, g: { ...wire.g, r: wire.g.r.map((v, i) => (i === 3 ? code : v)) } });
+      if (!forged) continue;
       applyWire(guest, forged);
-      expect(guest.scales[0].note, String(code)).toBe('');
+      expect(guest.g.round.note, String(code)).toBe('');
     }
-    // 요약 어디에도 글자를 그대로 그리는 칸이 없다(다리 글자 a 만 문자열이고, 조회에만 쓴다)
+    // 요약에서 글자로 오는 칸은 다리 글자 a 와 식(손님 기기가 다시 읽어 수식으로만 쓴다)뿐이다
     expect(Object.entries(JSON.parse(JSON.stringify(wire))).filter(([, v]) => typeof v === 'string').map(([k]) => k)).toEqual(['a']);
-    expect(wire.s.flat().every(v => typeof v === 'number')).toBe(true);
+    expect(wire.g.r.every(v => typeof v === 'number')).toBe(true);
   });
 
   it('터무니없는 값은 받아도 범위 안으로 잘린다: 걷는 그림 번호, 속도, 시간', () => {
@@ -206,7 +206,7 @@ describe('세계 요약(sync)', () => {
     const a = toWire(w, [0, 1], 1, 1);
     const b: Wire = { ...a, n: 2, p: a.p.slice() };
     b.p[1] = a.p[1] + 10;                 // 0번은 10px 걸었다
-    b.p[8 + 1] = a.p[8 + 1] + 300;        // 1번은 되살아나 멀리 옮겨졌다
+    b.p[9 + 1] = a.p[9 + 1] + 300;        // 1번은 되살아나 멀리 옮겨졌다
     const track = newTrack(); track.gap = 50;
     expect(pushWire(track, a, 1, 1000)).toBe(true);
     expect(pushWire(track, b, 1, 1050)).toBe(true);
@@ -215,13 +215,13 @@ describe('세계 요약(sync)', () => {
     const guest = createWorld(w.stage, people(2), 1);
     blend(guest, track, 1075, 1 / 60);    // 그리는 때 = 1075 - 간격(50) = 1025: 두 요약의 한가운데
     expect(guest.players[0].x).toBeCloseTo(a.p[1] + 5, 0);
-    expect(guest.players[1].x).toBeCloseTo(b.p[8 + 1], 5);
+    expect(guest.players[1].x).toBeCloseTo(b.p[9 + 1], 5);
     blend(guest, track, 1200, 1 / 60);    // 다음 요약이 늦어도 마지막 자리에서 멈춘다
     expect(guest.players[0].x).toBeCloseTo(b.p[1], 5);
   });
 
   it('30명이 뛰어다니는 요약도 상한(32KB)에 한참 못 미친다', () => {
-    const w = busy('math/scale-equation', '05', 30, 2, 60 * 5);
+    const w = busy('math/graph-factory', '05', 30, 2, 60 * 5);
     const text = JSON.stringify({ t: 's', d: toWire(w, w.players.map((_, i) => i), 1, 1) });
     expect(text.length).toBeLessThan(LIMITS.snap / 8);
     expect(SNAP_EVERY).toBe(3);
@@ -247,7 +247,7 @@ function room() {
   const last = (s: Sock, t: string) => s.got.map(x => { try { return JSON.parse(x); } catch { return {}; } }).filter(m => m.t === t).pop();
   return { core, lobby, enter, say, bye, last };
 }
-const INFO: RoomInfo = { pack: 'math/scale-equation', stage: 1, seed: 77, run: 3, pub: true, big: false, order: [0, 1] };
+const INFO: RoomInfo = { pack: 'math/graph-factory', stage: 1, seed: 77, run: 3, pub: true, big: false, order: [0, 1] };
 
 describe('방의 규칙(room-rules)', () => {
   it('없는 방에는 못 들어가고, 이미 있는 코드로는 방을 만들지 못한다', () => {
@@ -552,7 +552,7 @@ describe('방의 규칙(room-rules)', () => {
 
   it('공개 방 목록은 30초 넘게 소식 없는 방을 뺀다', () => {
     const list = new PublicList();
-    list.report('ABCDEF', { code: 'ABCDEF', pack: 'math/scale-equation', stage: 0, count: 3 }, 0);
+    list.report('ABCDEF', { code: 'ABCDEF', pack: 'math/graph-factory', stage: 0, count: 3 }, 0);
     list.report('GHJKMN', { code: 'GHJKMN', pack: '', stage: -1, count: 9 }, 20_000);
     list.report('nope', { code: 'nope', pack: '', stage: 0, count: 1 }, 20_000);
     expect(list.list(25_000).map(r => r.code)).toEqual(['GHJKMN', 'ABCDEF']);
@@ -670,8 +670,8 @@ describe('연결(net)', () => {
   });
 
   it('공개 방 목록은 모양이 맞는 것만 받고, 받아 오지 못하면 빈 목록이다', async () => {
-    const ok = (async () => ({ ok: true, json: async () => [{ code: 'ABCDEF', pack: 'math/scale-equation', stage: 2, count: 3 }, { code: 'bad', pack: 'x/y', stage: 0, count: 1 }, { code: 'GHJKMN', pack: '<b>', stage: 'x', count: 99 }, null, 'x'] })) as unknown as typeof fetch;
-    expect(await listPublic('http://room.test', ok)).toEqual([{ code: 'ABCDEF', pack: 'math/scale-equation', stage: 2, count: 3 }, { code: 'GHJKMN', pack: '', stage: -1, count: 30 }]);
+    const ok = (async () => ({ ok: true, json: async () => [{ code: 'ABCDEF', pack: 'math/graph-factory', stage: 2, count: 3 }, { code: 'bad', pack: 'x/y', stage: 0, count: 1 }, { code: 'GHJKMN', pack: '<b>', stage: 'x', count: 99 }, null, 'x'] })) as unknown as typeof fetch;
+    expect(await listPublic('http://room.test', ok)).toEqual([{ code: 'ABCDEF', pack: 'math/graph-factory', stage: 2, count: 3 }, { code: 'GHJKMN', pack: '', stage: -1, count: 30 }]);
     expect(await listPublic('http://room.test', (async () => { throw new Error('끊김'); }) as unknown as typeof fetch)).toEqual([]);
     expect(await listPublic('http://room.test', (async () => ({ ok: false })) as unknown as typeof fetch)).toEqual([]);
   });

@@ -59,7 +59,7 @@ const facName = (v: unknown, ch: string) => {
 const validNeed = (v: unknown): v is Need => v === 'half' || v === 'third' || v === 'all' || (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 30);
 
 /** 바닥에 서는 장치(아래가 땅). */
-const FLOOR = new Set(['press', 'desk', 'out', 'stand', 'bell', 'bucket', 'drain', 'basket', 'flower', 'leak', 'sled']);
+const FLOOR = new Set(['press', 'desk', 'out', 'stand', 'bell', 'bucket', 'drain', 'basket', 'flower']);   // 새는 바닥(leak)은 칸들을 감싼 넓이 전체를 센다
 
 /** 공장 이름 → 공장 차례(같은 이름의 press·desk·out 을 묶는다). */
 const facIndex = new WeakMap<GraphStage, Map<string, number>>();
@@ -133,7 +133,8 @@ export function parseGraphLegend(g: GraphStage, ch: string, def: GraphLegend, ce
       return;
     }
     case 'leak': {
-      g.goals.push({ kind: 'leak', ch, rects: groups(cells).map(box), max: num(def.max, 0, 99, `"${ch}" 의 max`, 6), hold: num(def.hold, 5, 300, `"${ch}" 의 hold`, 40), opens: opensOf(def.opens, ch, legend) });
+      // 칸 사이에 양동이·거치대가 끼어 있어도 그 사이까지 한 넓이로 센다
+      g.goals.push({ kind: 'leak', ch, rects: [box(cells)], max: num(def.max, 0, 99, `"${ch}" 의 max`, 6), hold: num(def.hold, 5, 300, `"${ch}" 의 hold`, 40), opens: opensOf(def.opens, ch, legend) });
       return;
     }
     case 'sled': {

@@ -84,43 +84,20 @@ describe('연습 팩 01', () => {
   });
 });
 
-describe('연습 팩 02(저울)', () => {
-  const stage2 = () => parseStage(readFileSync(new URL('02.map.txt', dir), 'utf8'), JSON.parse(readFileSync(new URL('02.json', dir), 'utf8')));
-  it.each([1, 2, 3, 4, 5, 6, 7, 8])('두 명이 양쪽에서 같이 덜어 내고 나누면 다리가 놓이고 끝까지 간다(식 %i)', seed => {
-    const w = createWorld(stage2(), [{ color: '#fff' }, { color: '#fff' }], seed);
-    const sc = w.scales[0], def = w.stage.scales[0], [L, R] = def.pans;
-    const lever = (does: string) => w.stage.levers.find(l => l.does === does)!.x + 4;
-    const spot = { lm: L.x + L.w * 0.7, rm: R.x + R.w * 0.7, lbin: w.stage.bins[0].x + 4, rbin: w.stage.bins[1].x + 4 };
-    const walk = (x: number): Plan => (wd, i) => { const dx = x - wd.players[i].x; return { m: Math.abs(dx) > 2 ? (dx > 0 ? 1 : -1) : 0, j: false }; };
-    /** i 번 도름이가 x 까지 걸어가 확인을 한 번 누른다. */
-    const goTo = (i: number, x: number) => {
-      const plans: Plan[] = [stay, stay]; plans[i] = walk(x);
-      expect(drive(w, plans, () => Math.abs(w.players[i].x - x) <= 2, 12), `도름이 ${i + 1}이 ${Math.round(x)}까지 못 갔어요`).toBe(true);
-    };
-    const goTap = (i: number, x: number) => {
-      goTo(i, x);
-      const pads: Pad[] = [{ m: 0, j: false }, { m: 0, j: false }]; pads[i] = { m: 0, j: false, a: true };
-      step(w, pads, 1 / 60); step(w, [], 1 / 60);
-    };
-    const rest = (seconds: number) => { for (let f = 0; f < seconds * 60; f++) step(w, [], 1 / 60); };
-    rest(0.5);
-    expect(sc.line[0] * sc.x + sc.line[1]).toBe(sc.line[3]);
-    goTo(1, spot.rm);                                      // 오른쪽 담당이 먼저 자리로 간다(서로 지나가지 못한다)
-    goTap(0, lever('addsub'));
-    expect(sc.mode).toBe('sub');
-    for (let guard = 0; guard < 10 && sc.line[1] > 0; guard++) {
-      goTap(0, spot.lm); expect(sc.tilt).toBe(1);          // 왼쪽만 덜면 오른쪽이 무겁다
-      goTap(1, spot.rm); expect(sc.tilt).toBe(0);          // 오른쪽도 덜면 다시 수평
-      goTap(0, spot.lbin); goTap(1, spot.rbin);
-      rest(0.7);
-    }
-    expect(sc.line).toEqual([2, 0, 0, 2 * sc.x]);
-    expect(w.active.has('x')).toBe(false);
-    goTap(1, lever('divide'));
-    rest(2.2);
-    expect(sc.line).toEqual([1, 0, 0, sc.x]);
-    expect(sc.solved).toBe(true); expect(w.active.has('x')).toBe(true);
+describe('연습 팩 02(그래프 찍어 들기)', () => {
+  it('식 0, 범위 0~7, 손잡이를 끝(0)에 단 그래프를 구덩이에 걸치면 모두 건너 문에 들어간다', async () => {
+    const { stamp, dropAt, run: go } = await import('./graph-help');
+    const st = parseStage(readFileSync(new URL('02.map.txt', dir), 'utf8'), JSON.parse(readFileSync(new URL('02.json', dir), 'utf8')));
+    const w = createWorld(st, [{ color: '#fff' }, { color: '#fff' }], 1);
+    dropAt(w, stamp(w, '0', 0, 7, 0), 18 * 30 + 15, 330); go(w, 2);
+    w.players.forEach((p, i) => { p.x = (15 - i) * 30; p.y = 390 - p.h; });
     const door = w.stage.door!.x + 20;
     expect(drive(w, [walkTo(door), walkTo(door)], () => w.won, 40)).toBe(true);
+  });
+  it('그래프 없이는 구덩이를 못 건넌다', () => {
+    const st = parseStage(readFileSync(new URL('02.map.txt', dir), 'utf8'), JSON.parse(readFileSync(new URL('02.json', dir), 'utf8')));
+    const w = createWorld(st, [{ color: '#fff' }, { color: '#fff' }], 1);
+    const door = w.stage.door!.x + 20;
+    expect(drive(w, [walkTo(door), walkTo(door)], () => w.won, 20)).toBe(false);
   });
 });
