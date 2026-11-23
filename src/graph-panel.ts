@@ -46,7 +46,7 @@ function plane(cv: HTMLCanvasElement, f: Formula | null, a?: number, b?: number,
   for (let x = ox % UNIT; x < W; x += UNIT) c.fillRect(Math.round(x), 0, 1, H);
   for (let y = oy % UNIT; y < H; y += UNIT) c.fillRect(0, Math.round(y), W, 1);
   c.fillStyle = PALETTE.navy; c.fillRect(0, oy, W, 2); c.fillRect(ox, 0, 2, H);
-  c.font = '10px Galmuri11, monospace'; c.textAlign = 'center';
+  c.font = '11px "Noto Sans KR", system-ui, sans-serif'; c.textAlign = 'center';
   for (let k = -10; k <= 10; k += 5) if (k) { c.fillText(String(k), ox + k * UNIT, oy + 14); c.fillText(String(k), ox - 12, oy - k * UNIT + 4); }
   if (!f) return;
   const draw = (lo: number, hi: number, width: number, color: string) => {
@@ -122,6 +122,7 @@ export function openPanel(o: PanelOpts): () => void {
       say(r.ok ? '' : r.reason);
     };
     const submit = () => {
+      if (closed) return;
       const r = readFormula(latex());
       if (!r.ok) { say(r.reason); return; }
       const out = o.send({ k: 'f', fac: o.fac, latex: latex() });
@@ -136,13 +137,13 @@ export function openPanel(o: PanelOpts): () => void {
       mf.smartFence = true;
       const cur = trustLatex(o.latex()); if (cur) mf.value = cur;   // 수식으로 다시 쓴 것만 넣는다
       mf.addEventListener('input', update);
-      // 실제 엔터와 화면 수식 자판의 줄바꿈 키 둘 다 제출한다. 자판 키는 keydown 없이 change 만 내므로 change 도 받되,
-      // 칸에서 나가며(blur) 오는 change 와 엔터 직후 겹쳐 오는 change 는 빼서 두 번 보내지 않는다
+      // 실제 엔터와 화면 수식 자판의 줄바꿈 키 둘 다 제출한다. 겹쳐 와도 한 번만 보낸다
       let sentAt = 0;
       const field = mf;
       const once = () => { if (performance.now() - sentAt < 400) return; sentAt = performance.now(); submit(); };
       field.addEventListener('keydown', (e: KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); once(); } });
-      field.addEventListener('change', () => { if (document.activeElement === field || field.contains(document.activeElement)) once(); });
+      // 화면 수식 자판의 줄바꿈 키는 keydown 없이 insertLineBreak 로 온다(칸을 떠날 때 나는 change 는 쓰지 않는다)
+      field.addEventListener('beforeinput', (e: Event) => { if ((e as InputEvent).inputType === 'insertLineBreak') { e.preventDefault(); once(); } });
       el.querySelector('.w-gp-mf')!.replaceChildren(mf);
       update();
       setTimeout(() => mf?.focus(), 30);

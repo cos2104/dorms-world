@@ -202,7 +202,7 @@ function play(p: Pack, si: number, people: number, review: Review | null = null)
     panel = openPanel({
       host: box, kind: act.do, fac: act.fac, latex: () => world.g.factories[act.fac]?.latex ?? '',
       send: order => { const note = placeOrder(stage.graph, world.g, hostOf(world), who, order); return orderDone(note) ? '' : note; },
-      onClose: () => { panel = null; pad.pause(false); canvas.focus?.(); },
+      onClose: () => { panel = null; pad.pause(false); prevA = true; canvas.focus?.(); },   // 닫은 뒤 확인을 한 번 떼야 다시 연다(엔터 자동 반복으로 다시 열리지 않게)
     });
     return true;
   };

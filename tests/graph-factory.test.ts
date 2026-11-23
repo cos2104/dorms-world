@@ -307,6 +307,16 @@ describe('08 맞물려 쌓는 탑', () => {
     return surfaceBelow(w.g, 945, 985, 0, 999) ?? 999;
   };
   it('위로 볼록 위에 아래로 볼록을 맞물리면 절벽에 뛰어오를 높이가 된다', () => expect(tower([['-0.5x^{2}', -3, 3], ['0.5x^{2}', -2.5, 2.5]])).toBeLessThanOrEqual(228));
+  it('아래 조각을 들고 가면 위 조각이 다시 떨어진다(허공에 떠 있지 않는다)', () => {
+    const w = makeWorld(loadStage(P, '08'), 1);
+    const a = stamp(w, '-0.5x^{2}', -3, 3, 0); dropAt(w, a, 885, 120); run(w, 2.5);
+    const b = stamp(w, '0.5x^{2}', -2.5, 2.5, 0); dropAt(w, b, 885, 120); run(w, 2.5);
+    const high = b.y;
+    a.state = 'held'; a.holders = [0]; w.players[0].x = 200;
+    run(w, 2.5);
+    expect(b.state).toBe('free');
+    expect(b.y).toBeGreaterThan(high + 60);
+  });
   it('평평한 그래프는 세 장을 쌓아도 모자란다', () => expect(tower([['0', -3, 3], ['0', -3, 3], ['0', -3, 3]])).toBeGreaterThan(228));
   it('맞물린 그래프 끝에 서서 뛰면 절벽 위에 오른다', () => {
     const w = makeWorld(loadStage(P, '08'), 1);

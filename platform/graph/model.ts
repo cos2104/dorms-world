@@ -153,6 +153,8 @@ export type GraphWorld = {
   bucket: { x: number; y: number; vy: number; holder: number; water: number } | null;
   sled: SledState | null;
   seed: number;
+  check?: number;                  // 걸음 수(놓인 조각이 받쳐지는지 가끔 본다)
+  splash?: [number, number][];     // 이번 걸음에 땅에 닿은 빗물 자리(샌 물 세기)
 };
 
 export function createGraph(gs: GraphStage, seed: number): GraphWorld {
@@ -238,6 +240,7 @@ const round3 = (v: number) => Math.round(v * 1000) / 1000;
 
 // ---------- 조각을 판 위 선분으로 ----------
 export type Seg = { x1: number; y1: number; x2: number; y2: number; pi: number; vx: number; vy: number };
+/** pi 는 조각 번호(id). 배열 차례가 아니라서 조각을 치워도 공이 기억한 번호가 다른 조각을 가리키지 않는다. */
 export function pieceSegs(p: Piece, pi: number, out: Seg[]) {
   const vx = p.mvx ?? 0, vy = p.mvy ?? 0;
   for (const run of p.shape.runs) for (let i = 1; i < run.length; i++) out.push({ x1: p.x + run[i - 1][0], y1: p.y + run[i - 1][1], x2: p.x + run[i][0], y2: p.y + run[i][1], pi, vx, vy });
@@ -330,7 +333,10 @@ export function graphActionAt(gs: GraphStage, g: GraphWorld, h: Host, pi: number
     if (f.press.some(r => near(r, cx, cy, 10))) return { do: 'press', fac: fi };
     if (f.desk.some(r => near(r, cx, cy, 10))) return { do: 'desk', fac: fi };
   }
-  if (gs.bells.some(r => near(r, cx, cy, 12))) return g.round.on ? { do: 'nothing', why: '벌써 시작했어요' } : { do: 'bell' };
+  if (gs.bells.some(r => near(r, cx, cy, 12))) {
+    const left = gs.goals.some((go, i) => !g.done[i] && (go.kind === 'flower' || go.kind === 'leak'));
+    return !left ? { do: 'nothing', why: '벌써 다 지켰어요' } : g.round.on ? { do: 'nothing', why: '벌써 시작했어요' } : { do: 'bell' };
+  }
   if (gs.sled && g.sled && !g.sled.run && Math.abs(g.sled.x - cx) < 34 && Math.abs(g.sled.y - (p.y + p.h)) < 40) return { do: 'sled' };
   return null;
 }
@@ -368,6 +374,9 @@ export function graphTick(gs: GraphStage, g: GraphWorld, h: Host, dt: number, op
   void speedOf;
   // 3) 떨어지는 조각
   for (const pc of g.pieces) if (pc.state !== 'held') pc.mvx = pc.mvy = 0;
+  // 받치던 것이 사라지면(아래 조각을 들고 감, 다리가 꺼짐) 놓여 있던 조각은 다시 떨어진다. 1초에 여섯 번 본다
+  g.check = (g.check ?? 0) + 1;
+  if (g.check % 10 === 0) for (const pc of g.pieces) if (pc.state === 'free' && dropRoom(g, h, pc, 2) >= 2) { pc.state = 'fall'; pc.vy = 0; }
   for (const pc of [...g.pieces]) if (pc.state === 'fall') fallPiece(gs, g, h, pc, dt);
   // 4) 양동이
   const bk = g.bucket;
@@ -394,7 +403,7 @@ export function graphTick(gs: GraphStage, g: GraphWorld, h: Host, dt: number, op
   }
   // 6) 공·물방울·벌
   const segs: Seg[] = [];
-  g.pieces.forEach((pc, i) => { if (pc.ignore <= 0 || pc.state !== 'held') pieceSegs(pc, i, segs); });
+  g.pieces.forEach(pc => { if (pc.ignore <= 0 || pc.state !== 'held') pieceSegs(pc, pc.id, segs); });
   moveBodies(gs, g, h, segs, dt);
   // 7) 썰매
   if (gs.sled && g.sled) sledTick(gs, g, h, segs, dt);
@@ -568,7 +577,7 @@ function moveBodies(gs: GraphStage, g: GraphWorld, h: Host, segs: Seg[], dt: num
         // 빗물: 곡선 위에서 거의 멈춘 채 오래 있으면 그 자리에서 아래로 샌다(평평한 홈통은 물을 모으지 못한다)
         // 빗물: 곡선 위에서 거의 멈춘 채 1초쯤 있으면 그 자리에서 아래로 떨어진다(가장 낮은 곳에서 떨어진다)
         if (b.k === 'rain') { if (hit >= 0 && (b.ny ?? 0) < -0.985 && Math.hypot(b.vx - (segs.find(sg => sg.pi === hit)?.vx ?? 0), b.vy) < 30) { b.rest = (b.rest ?? 0) + d; if (b.rest > 1) { b.skip = hit; b.vy = 60; b.rest = 0; } } else b.rest = 0; }
-        if (tileBounce(b, h, b.k === 'rain' ? 0 : 0.3)) { if (b.k === 'rain') gone = true; }
+        if (tileBounce(b, h, b.k === 'rain' ? 0 : 0.3)) { if (b.k === 'rain') { gone = true; (g.splash ??= []).push([b.x, b.y + b.r]); } }
       }
       if (b.x < -40 || b.x > h.stageW + 40 || b.y > h.stageH + 40 || b.y < -200) gone = true;
     }
@@ -630,6 +639,9 @@ function sledTick(gs: GraphStage, g: GraphWorld, h: Host, segs: Seg[], dt: numbe
 export const riderSpot = (s: SledState) => ({ x: s.x - 11, y: s.y - 14 - 38 });
 
 function goalsTick(gs: GraphStage, g: GraphWorld, h: Host, dt: number) {
+  try { goalsTickInner(gs, g, h, dt); } finally { g.splash = []; }
+}
+function goalsTickInner(gs: GraphStage, g: GraphWorld, h: Host, dt: number) {
   const rd = g.round;
   gs.goals.forEach((go, i) => {
     if (g.done[i]) return;
@@ -663,6 +675,8 @@ function goalsTick(gs: GraphStage, g: GraphWorld, h: Host, dt: number) {
       if (go.rects.some(r => b.x > r.x - 2 && b.x < r.x + r.w + 2 && b.y > r.y + r.h - 12 && b.y < r.y + r.h + 6)) { rd.leaks[i]++; return false; }
       return true;
     });
+    // 걸음이 커서 바닥 바로 위 칸을 건너뛰고 땅에 먼저 닿은 빗물도 센다
+    for (const [x, y] of g.splash ?? []) if (go.rects.some(r => x > r.x - 2 && x < r.x + r.w + 2 && y > r.y + r.h - 14 && y < r.y + r.h + 10)) rd.leaks[i]++;
     if (rd.on && rd.leaks[i] > go.max) fail(gs, g, RNOTE.leak);
     else if (rd.on && rd.t >= go.hold) { g.done[i] = true; endIfDone(gs, g); }
   });
@@ -682,7 +696,7 @@ function slotsTick(gs: GraphStage, g: GraphWorld, dt: number) {
   gs.slots.forEach((sl, si) => {
     const di = gs.goals.length + si;
     if (g.done[di]) return;
-    const fitBy = g.pieces.findIndex(pc => pc.state !== 'fall' && fits(pc, sl));
+    const fitBy = g.pieces.findIndex(pc => pc.state !== 'fall' && pc.state !== 'fixed' && fits(pc, sl));
     if (fitBy < 0) { g.fit[si] = 0; return; }
     g.fit[si] += dt;
     if (g.fit[si] >= 0.8) {

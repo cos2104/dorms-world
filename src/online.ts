@@ -827,6 +827,7 @@ function openGame(p: Pack, si: number) {
 
   // 그래프 공장: 찍는 방·손잡이 방 앞에서 확인을 누르면 이 기기에서 창을 연다. 방장은 바로 넣고, 손님은 방장에게 보낸다
   let panel: (() => void) | null = null, prevA = false;
+  const orderAt = new Map<number, number>();   // 자리마다 마지막으로 받은 식 주문 시각
   const tryPanel = (a: boolean) => {
     const rose = a && !prevA; prevA = a;
     const mi = meIdx(), me = world.players[mi];
@@ -844,7 +845,7 @@ function openGame(p: Pack, si: number) {
         if (bad) return bad;
         k.sendOrder(order); return '';
       },
-      onClose: () => { panel = null; input.pause(false); },
+      onClose: () => { panel = null; input.pause(false); prevA = true; },   // 닫은 뒤 확인을 한 번 떼야 다시 연다
     });
     return true;
   };
@@ -923,7 +924,12 @@ function openGame(p: Pack, si: number) {
     onOrder(seat, order) {
       const k = link; if (!k?.isHost) return;
       const at = k.room.order.indexOf(seat);
-      if (at >= 0) placeOrder(stage.graph, world.g, hostOf(world), at, order);
+      if (at < 0) return;
+      // 사람마다 식 주문은 0.3초에 한 번만 받는다(사람이 누르는 속도로는 충분하고, 주문을 퍼부어 방장 판을 멈추지 못한다)
+      const now = performance.now();
+      if (now - (orderAt.get(seat) ?? -1e9) < 300) return;
+      orderAt.set(seat, now);
+      placeOrder(stage.graph, world.g, hostOf(world), at, order);
     },
     onSnap(wire) { if (link && !link.isHost && pushWire(track, wire, link.room.run, performance.now())) { netStats.got++; tryClaim(true); } },
     reorder(before, after) {

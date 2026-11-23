@@ -42,10 +42,10 @@ export function drawGrid(c: CanvasRenderingContext2D, cols: number, rows: number
   c.globalAlpha = 0.34;
   for (let x = 0; x <= cols; x += 5) c.fillRect(x * T - 1, 0, 2, H);
   for (let y = rows; y >= 0; y -= 5) c.fillRect(0, y * T - 1, W, 2);
-  c.globalAlpha = 0.7; c.fillStyle = N; c.font = '10px Galmuri11, monospace'; c.textBaseline = 'alphabetic';
+  c.globalAlpha = 0.75; c.fillStyle = N; c.font = '11px "Noto Sans KR", system-ui, sans-serif'; c.textBaseline = 'alphabetic';
   c.textAlign = 'left';
   for (let x = 0; x <= cols; x += 5) c.fillText(String(x), x * T + 3, 11);
-  for (let y = 5; y <= rows; y += 5) c.fillText(String(y), 3, (rows - y) * T - 3);   // 바닥부터 센 높이
+  for (let y = 5; y <= rows; y += 5) c.fillText(String(y), 3, y === rows ? 24 : (rows - y) * T - 3);   // 바닥부터 센 높이(맨 위 줄은 선 아래에)
   c.restore();
 }
 
@@ -151,7 +151,7 @@ function drawStations(c: CanvasRenderingContext2D, gs: GraphStage, g: GraphWorld
     } else {
       for (const r of go.rects) { c.fillStyle = N; c.fillRect(r.x + 2, r.y + r.h - 6, r.w - 4, 4); c.fillStyle = INKS.k; c.fillRect(r.x + 4, r.y + r.h - 5, r.w - 8, 2); }
       const r = go.rects[0];
-      label(c, `샌 물 ${g.round.leaks[i]}/${go.max}`, r.x + r.w / 2, r.y - 6, g.round.leaks[i] > go.max * 0.7 ? PALETTE.button : N);
+      label(c, `샌 물 ${g.round.leaks[i]}/${go.max}`, r.x + 60, r.y - 6, g.round.leaks[i] > go.max * 0.7 ? PALETTE.button : N);
     }
   });
   for (const d of gs.drains) {

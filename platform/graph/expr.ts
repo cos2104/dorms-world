@@ -413,6 +413,17 @@ function ser(n: Node): string {
 // ---------- 공개 API ----------
 
 let engine: ComputeEngine | null = null;
+
+/** 여는 괄호와 닫는 괄호가 짝이 맞는지(닫는 것이 먼저 나오거나 덜 닫히면 false). */
+function bracketsBalanced(t: string): boolean {
+  const st: string[] = [];
+  const pair: Record<string, string> = { ')': '(', ']': '[', '}': '{' };
+  for (const ch of t) {
+    if (ch === '(' || ch === '[' || ch === '{') st.push(ch);
+    else if (ch in pair) { if (st.pop() !== pair[ch]) return false; }
+  }
+  return st.length === 0;
+}
 const trees = new WeakMap<Formula, Node>();
 
 export function readFormula(latex: string): { ok: true; formula: Formula } | { ok: false; reason: string } {
@@ -429,6 +440,13 @@ export function readFormula(latex: string): { ok: true; formula: Formula } | { o
     else if (ch === '}' || ch === ')' || ch === ']') open--;
   }
   if (deepest > DEPTH_MAX) return { ok: false, reason: MSG.complex };
+  if (open !== 0 || !bracketsBalanced(clean)) return { ok: false, reason: MSG.incomplete };
+  // 수식 해석기는 부호·절댓값 막대가 줄지어 나오면 시간이 기하급수로 늘어난다(짧은 글 하나로 판이 멈춘다).
+  // 그래서 해석기에 넘기기 전에 값싸게 훑어 막는다. 실제 식에는 +·- 가 셋 넘게 붙거나 | 가 여섯 넘게 나오지 않는다.
+  const tight = clean.replace(/\\[,;:! ]|\s+/g, '');
+  if (/(?:[+\-]|\\pm|\\mp){3,}/.test(tight)) return { ok: false, reason: MSG.complex };
+  if ((tight.match(/\|/g) ?? []).length > 6) return { ok: false, reason: MSG.complex };
+  if ((tight.match(/[+\-]|\\pm|\\mp/g) ?? []).length > 40) return { ok: false, reason: MSG.complex };
 
   let json: unknown;
   try {
