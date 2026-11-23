@@ -5,13 +5,14 @@
  * 누가 보낸 글이든 믿지 않는다: 모양과 크기를 검사하고, 모르는 것은 버리고, 조작 신호는 검사한 값으로 다시 써서 넘긴다.
  *
  * 교사 방: 방을 만든 연결이 도름스가 서명한 교사 출입증을 내면 그 방은 교사 방이 된다(방 제목, 닉네임 신청과 승인, 순위에 올리기).
- * 사람이 쓴 글자가 방을 지나가는 것은 교사가 정한 방 제목과 교사가 승인한 닉네임 둘뿐이고, 둘 다 방이 있는 동안 메모리에만 있다.
+ * 사람이 쓴 글자가 방을 지나가는 것은 교사가 정한 방 제목과 교사가 승인한 닉네임, 그래프 공장에 넣은 식(방장에게만 가고, 방장이 수식으로 다시 써서 나눈다)뿐이고, 모두 방이 있는 동안 메모리에만 있다.
  */
 import { validRoomCode } from './room-code';
+import { cleanOrder } from './graph/order';
 
 export const MAX_SEATS = 30;
 /** 메시지 크기 상한(바이트). 손님은 조작 신호뿐이라 작고, 방장만 세계 요약을 보낸다. */
-export const LIMITS = { guest: 256, snap: 32 * 1024, host: 2048, pass: 1024, perSec: 40, burst: 80 } as const;
+export const LIMITS = { guest: 256, snap: 32 * 1024, host: 2048, pass: 1024, order: 640, perSec: 40, burst: 80 } as const;
 /** 닉네임 10자, 방 제목 20자. 닉네임 신청은 연결마다 10초에 한 번, 출입증 내기는 3초에 한 번. */
 /** 판 번호의 상한. 방장이 이 값을 넘겨 보내면 방 서버가 받지 않는다. 화면은 다음 판을 열 때 이 값에서 1 로 돌아간다. */
 export const RUN_MAX = 1_000_000_000;
@@ -436,7 +437,7 @@ export class RoomCore<S> {
     if (--c.tokens < 0) return this.kick(c, CLOSE.tooFast, 'fast');
     const size = bytes(text);
     // 손님 글은 256바이트까지. 출입증을 내는 글만 1KB 까지 받는다(방장이 아닌 교사도 낼 수 있게)
-    if (size > (c.host ? LIMITS.snap : text.startsWith('{"t":"pass",') ? LIMITS.pass : LIMITS.guest)) return this.kick(c, CLOSE.tooBig, 'big');
+    if (size > (c.host ? LIMITS.snap : text.startsWith('{"t":"pass",') ? LIMITS.pass : text.startsWith('{"t":"g",') ? LIMITS.order : LIMITS.guest)) return this.kick(c, CLOSE.tooBig, 'big');
     let msg: unknown;
     try { msg = JSON.parse(text); } catch { return; }
     if (!msg || typeof msg !== 'object') return;
@@ -446,6 +447,10 @@ export class RoomCore<S> {
       if (c.host) return;
       const pad = cleanPad(msg), host = this.conns.get(this.hostSeat);
       if (pad && host) this.out.send(host.sock, JSON.stringify({ t: 'p', s: c.seat, ...pad }));
+    } else if (t === 'g') {                            // 그래프 공장 주문(식, 손잡이): 손님 → 방장에게만. 모양을 검사한 값으로 다시 써서 넘긴다
+      if (c.host) return;
+      const order = cleanOrder(msg), host = this.conns.get(this.hostSeat);
+      if (order && host) this.out.send(host.sock, JSON.stringify({ t: 'g', s: c.seat, o: order }));
     } else if (t === 's') {                            // 세계 요약: 방장 → 게임 화면을 보는 손님에게
       if (!c.host) return;
       for (const o of this.conns.values()) if (o !== c && o.view === 'play') this.out.send(o.sock, text);

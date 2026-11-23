@@ -11,7 +11,9 @@ import { colorFor } from '../platform/identity';
 import { PadInput } from '../platform/input';
 import { VIEW_H, VIEW_W } from '../platform/look';
 import { cameraFor, loadAssets, nearText, padLift, render, renderPreview, type Camera } from '../platform/render';
-import { createWorld, step, NO_PAD, type World } from '../platform/sim';
+import { actionAt, createWorld, hostOf, step, NO_PAD, type World } from '../platform/sim';
+import { orderDone, placeOrder } from '../platform/graph/model';
+import { openPanel } from './graph-panel';
 import { esc } from '../platform/text';
 import { makeScreen } from './make';
 import { headOf, loadDormsReview, loadReview, type Review } from './review';
@@ -108,7 +110,7 @@ function packScreen(p: Pack, people = 4, review: Review | null = null) {
         <div class="ar-view-tabs w-counts" role="group" aria-label="연습 인원">${counts.map(n => `<button class="ar-key ghost" data-people="${n}" aria-pressed="${n === people}">${n}명</button>`).join('')}</div>
         <p class="ar-kicker w-kicker">스테이지</p>
         <div class="lab-roster w-stages">${rows}</div>
-        <p class="w-keys"><span>한 기기에서 도름이를 번갈아 움직여요.</span> <span>움직이기 왼쪽·오른쪽 방향키</span> · <span>뛰기 스페이스(또는 Z)</span> · <span>확인 엔터(문에 들어가기, 들고 놓기, 레버 당기기)</span> · <span>도름이 바꾸기 Tab</span></p>
+        <p class="w-keys"><span>한 기기에서 도름이를 번갈아 움직여요.</span> <span>움직이기 왼쪽·오른쪽 방향키</span> · <span>뛰기 스페이스(또는 Z)</span> · <span>확인 엔터(문에 들어가기, 식 넣기, 손잡이 잡고 놓기)</span> · <span>도름이 바꾸기 Tab</span></p>
       </div>
     </div>`,
     '스테이지를 고르면 바로 시작해요', `STAGE ${p.stages.length}`,
@@ -141,7 +143,7 @@ function play(p: Pack, si: number, people: number, review: Review | null = null)
   stop?.(); stop = null;
   const stage = p.stageData[si];
   const colors = Array.from({ length: people }, (_, i) => colorFor(i));
-  let world: World = createWorld(stage, colors.map(color => ({ color })), (Date.now() % 1000003) + 1);   // 저울의 식은 할 때마다 새로 뽑는다
+  let world: World = createWorld(stage, colors.map(color => ({ color })), (Date.now() % 1000003) + 1);   // 공·벌이 오는 차례는 할 때마다 다르다
   let mine = 0, cam: Camera | undefined, raf = 0, last = performance.now(), acc = 0, hintUntil = last + 6000, shown = false, mathText = '', lift = 0, liftAt = -1e9;
 
   app.innerHTML = `<main class="arcade-root w-root w-play">
@@ -164,7 +166,7 @@ function play(p: Pack, si: number, people: number, review: Review | null = null)
   const allBtn = app.querySelector<HTMLButtonElement>('[data-all]')!;
   const toggleAll = () => { together = !together; allBtn.setAttribute('aria-pressed', String(together)); };
   allBtn.onclick = e => { toggleAll(); (e.currentTarget as HTMLElement).blur(); };
-  const onKey = (e: KeyboardEvent) => { if (e.code === 'Tab') { e.preventDefault(); swap(); } else if (e.code === 'KeyG' && !e.repeat) toggleAll(); };
+  const onKey = (e: KeyboardEvent) => { if (panel) return; if (e.code === 'Tab') { e.preventDefault(); swap(); } else if (e.code === 'KeyG' && !e.repeat) toggleAll(); };
   window.addEventListener('keydown', onKey);
   // 단추를 누른 뒤 초점이 남아 있으면 엔터(확인)·스페이스(뛰기)가 그 단추를 다시 누르게 되므로 초점을 뗀다
   app.querySelector<HTMLButtonElement>('[data-swap]')!.onclick = e => { swap(); (e.currentTarget as HTMLElement).blur(); };
@@ -187,16 +189,34 @@ function play(p: Pack, si: number, people: number, review: Review | null = null)
     endEl.querySelector<HTMLButtonElement>('button')!.focus();
   };
 
+  // 그래프 공장: 찍는 방·손잡이 방 앞에서 확인을 누르면 창을 연다(창이 열린 동안 자판은 창으로 간다)
+  let panel: (() => void) | null = null, prevA = false;
+  const tryPanel = (a: boolean) => {
+    const rose = a && !prevA; prevA = a;
+    const me = world.players[mine];
+    if (!rose || panel || !me) return false;
+    const act = actionAt(world, me);
+    if (!act || (act.do !== 'press' && act.do !== 'desk')) return false;
+    pad.pause(true);
+    const who = mine;
+    panel = openPanel({
+      host: box, kind: act.do, fac: act.fac, latex: () => world.g.factories[act.fac]?.latex ?? '',
+      send: order => { const note = placeOrder(stage.graph, world.g, hostOf(world), who, order); return orderDone(note) ? '' : note; },
+      onClose: () => { panel = null; pad.pause(false); canvas.focus?.(); },
+    });
+    return true;
+  };
+
   const frame = (now: number) => {
     raf = requestAnimationFrame(frame);
     acc = Math.min(acc + (now - last) / 1000, 0.1); last = now;
-    while (acc >= 1 / 60) { const now = pad.read(), pads = world.players.map((_, i) => (together || i === mine ? now : NO_PAD)); step(world, pads, 1 / 60); acc -= 1 / 60; }
+    while (acc >= 1 / 60) { const now = pad.read(), pads = world.players.map((_, i) => (together || i === mine ? now : NO_PAD)); if (tryPanel(!!now.a)) pads[mine] = NO_PAD; step(world, pads, 1 / 60); acc -= 1 / 60; }
     if (world.players[mine]?.inDoor && !world.won) swap();
     if (now - liftAt > 500) { liftAt = now; lift = padLift(canvas, stage); }   // 화면 단추가 판 아래를 덮는 만큼 판을 올려 그린다(화면을 돌리면 다시 잰다)
     cam = cameraFor(world, world.won ? null : mine, cam, lift);
     render(c, world, cam, now, mine);
     if (now > hintUntil && hintEl.textContent) hintEl.textContent = '';
-    // 가까운 저울의 식과 지금 할 수 있는 일(좁은 세로 화면에서만 보인다. 첫 안내가 떠 있는 동안은 자리를 비켜 준다)
+    // 가까운 공장의 식과 지금 할 수 있는 일(좁은 세로 화면에서만 보인다. 첫 안내가 떠 있는 동안은 자리를 비켜 준다)
     const math = hintEl.textContent || world.won ? '' : nearText(world, mine);
     if (math !== mathText) {   // 한 줄씩 칸으로: 판 아래 자리가 모자란 짧은 화면에서는 위(오래된 식)부터 가려지고 지금 식과 할 일은 남는다
       mathText = math; mathEl.hidden = !math;
@@ -205,7 +225,7 @@ function play(p: Pack, si: number, people: number, review: Review | null = null)
     if (world.won && !shown) finish();
   };
   raf = requestAnimationFrame(frame);
-  stop = () => { cancelAnimationFrame(raf); window.removeEventListener('keydown', onKey); pad.dispose(); };
+  stop = () => { cancelAnimationFrame(raf); window.removeEventListener('keydown', onKey); pad.dispose(); panel?.(); };
   // 시험 도구가 상태를 읽을 수 있게(개발 중에만).
   if (import.meta.env.DEV) Object.assign(window as unknown as object, { __world: () => world, __cam: () => cam });
 }

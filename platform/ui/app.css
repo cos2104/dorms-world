@@ -237,3 +237,29 @@ body { word-break: keep-all; overflow-wrap: anywhere; }
   .w-root .w-prof-tags { justify-content: flex-start; }
   .w-root .w-prof-games { max-height: 7rem; }
 }
+
+/* 그래프 공장의 창(찍는 방 · 손잡이 방). 끝 창과 같은 덮개를 쓰고, 미리보기가 들어가게 조금 넓다 */
+.w-gpanel .lab-modal { width: min(100%, 600px); max-width: none; }
+.w-gp-lead { margin: 0 0 .6rem; }
+.w-gp-lead b { font-family: "Galmuri11", monospace; color: var(--ar-amber); }
+.w-gp-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .6rem; }
+.w-gp-fx { font-family: "Galmuri11", monospace; font-weight: 700; color: var(--ar-amber); white-space: nowrap; }
+.w-gp-mf { flex: 1 1 auto; min-width: 0; }
+.w-gp-mf math-field { display: block; width: 100%; font-size: 22px; border: 3px solid #14285F; border-radius: 8px; padding: 4px 8px; background: #F4F7FF; color: #14285F; --caret-color: #E0524F; --selection-background-color: #F5C542; }
+.w-gp-mf math-field::part(menu-toggle) { display: none; }
+.w-gp-wait { font-size: .9rem; color: var(--ar-dim); }
+.w-gp-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem; margin-bottom: .6rem; }
+.w-gp-grid label { display: grid; gap: .2rem; font-size: .8rem; color: var(--ar-ink-soft); }
+.w-gp-grid input { width: 100%; min-width: 0; box-sizing: border-box; font: 700 1rem "Galmuri11", monospace; padding: .35rem .4rem; border: 3px solid #14285F; border-radius: 8px; background: #F4F7FF; color: #14285F; }
+.w-gp-views { display: flex; gap: .5rem; align-items: stretch; }
+.w-gp-plane { flex: 1 1 auto; min-width: 0; width: 100%; max-width: 360px; height: auto; border: 3px solid #14285F; border-radius: 8px; image-rendering: auto; }
+.w-gp-lift { margin: 0; flex: 0 0 auto; display: grid; grid-template-rows: 1fr auto; width: 150px; }
+.w-gp-lift canvas { width: 100%; height: auto; border: 3px solid #14285F; border-radius: 8px; }
+.w-gp-lift figcaption { font-size: .75rem; text-align: center; color: var(--ar-ink-soft); padding-top: .2rem; }
+.w-gp-msg { min-height: 1.4em; margin: .5rem 0 0; font-size: .9rem; color: var(--ar-amber); }
+@media (max-width: 560px) {
+  .w-gp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .w-gp-views { flex-direction: column; }
+  .w-gp-lift { width: 100%; grid-template-rows: auto auto; }
+  .w-gp-lift canvas { max-height: 140px; object-fit: contain; }
+}

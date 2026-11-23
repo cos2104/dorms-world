@@ -2,7 +2,8 @@
  * 스테이지 읽기. 글자 지도(NN.map.txt)와 장치 값(NN.json)을 판이 쓰는 모양으로 바꾼다.
  * 형식 설명은 kit/STAGE_FORMAT.md. 잘못된 곳은 쉬운 한국어로 알려 준다.
  */
-import { checkSpec, type EquationSpec, type Range } from './equation';
+import { emptyGraphStage, type GraphStage } from './graph/model';
+import { GRAPH_KEYS, finishGraph, parseGraphLegend, type GraphLegend } from './graph/legend';
 import type { Sprite } from './sprite';
 
 export const T = 30;
@@ -16,40 +17,16 @@ export type LegendEntry =
   | { type: 'crate'; need?: Need }
   | { type: 'sign'; texts?: string[] }
   | { type: 'deco'; sprite?: string }
-  | { type: 'pan'; scale?: string; side?: 'left' | 'right' }
-  | { type: 'bin'; scale?: string }
-  | { type: 'lever'; scale?: string; does?: 'addsub' | 'divide' };
+  | GraphLegend;
 
-/** 저울 하나. 식의 수는 범위로 적고 시작할 때마다 뽑는다. */
-export type ScaleJson = {
-  x?: Range;
-  left?: { boxes?: Range; marbles?: Range };
-  right?: { boxes?: Range };
-  opens?: string[];
-  spill?: number;
-  skin?: { box?: string; marble?: string };
-};
-
-export type StageJson = { legend?: Record<string, LegendEntry>; scales?: Record<string, ScaleJson>; hint?: string };
+export type StageJson = { legend?: Record<string, LegendEntry>; hint?: string };
 
 export type Button = Rect & { ch: string; need: Need; opens: string[] };
 export type Bridge = { ch: string; mode: 'appear' | 'vanish'; cells: [number, number][] };
 export type CrateDef = Rect & { ch: string; need: Need };
 export type Sign = { x: number; y: number; texts: string[] };
-export type ScaleDef = {
-  name: string;
-  spec: EquationSpec;
-  opens: string[];
-  spill: number;                 // 기운 채로 이만큼(초) 지나면 쏟아진다. 0 이면 쏟아지지 않는다
-  pans: [Rect, Rect];            // 왼쪽, 오른쪽 접시가 놓인 칸
-  floor: number;                 // 접시 아래 땅의 윗면(y)
-  hasAddSub: boolean;            // 더하기·빼기 레버가 있다(없으면 통에서 넣고 빼기를 다 한다)
-  skin: { box?: Sprite; marble?: Sprite };   // 상자와 구슬 대신 그릴 팩의 그림(없으면 기본 그림)
-};
 /** 꾸밈 그림. 부딪히지 않고 도름이 뒤에 그려진다. x, y 는 그림의 왼쪽 위. */
 export type Deco = { x: number; y: number; sprite: Sprite };
-export type Bin = Rect & { scale: number };
-export type Lever = Rect & { scale: number; does: 'addsub' | 'divide' };
 
 export type Stage = {
   cols: number; rows: number;
@@ -61,10 +38,8 @@ export type Stage = {
   bridges: Bridge[];
   crates: CrateDef[];
   signs: Sign[];
-  scales: ScaleDef[];
   decos: Deco[];
-  bins: Bin[];
-  levers: Lever[];
+  graph: GraphStage;
   hint: string;
 };
 
@@ -114,11 +89,11 @@ export function parseStage(mapText: string, json: StageJson = {}, sprites: Recor
   lines.forEach((l, i) => { if (l.length !== cols) throw new Error(`지도 ${i + 1}번째 줄 길이가 달라요(${l.length}칸, 첫 줄은 ${cols}칸).`); });
 
   if (json === null || typeof json !== 'object' || Array.isArray(json)) throw new Error('NN.json 은 { "legend": { ... } } 모양이어야 해요.');
-  for (const k of Object.keys(json)) if (k !== 'legend' && k !== 'hint' && k !== 'scales') throw new Error(`NN.json 의 "${k}" 는 모르는 칸이에요. legend, scales, hint 만 쓸 수 있어요.`);
+  for (const k of Object.keys(json)) if (k !== 'legend' && k !== 'hint') throw new Error(`NN.json 의 "${k}" 는 모르는 칸이에요. legend, hint 만 쓸 수 있어요.`);
   if (json.hint != null && (typeof json.hint !== 'string' || json.hint.length > 60)) throw new Error('hint 는 60자까지의 한 줄이에요.');
   const legend = json.legend ?? {};
   if (legend === null || typeof legend !== 'object' || Array.isArray(legend)) throw new Error('legend 는 { "a": { "type": ... } } 모양이어야 해요.');
-  const KEYS: Record<string, string[]> = { button: ['type', 'need', 'opens'], bridge: ['type', 'mode'], crate: ['type', 'need'], sign: ['type', 'texts'], deco: ['type', 'sprite'], pan: ['type', 'scale', 'side'], bin: ['type', 'scale'], lever: ['type', 'scale', 'does'] };
+  const KEYS: Record<string, string[]> = { button: ['type', 'need', 'opens'], bridge: ['type', 'mode'], crate: ['type', 'need'], sign: ['type', 'texts'], deco: ['type', 'sprite'], ...GRAPH_KEYS };
   const TYPES = Object.keys(KEYS).join(', ');
   for (const [ch, def] of Object.entries(legend) as [string, unknown][]) {
     if (def === null || typeof def !== 'object' || Array.isArray(def)) throw new Error(`legend 의 "${ch}" 는 { "type": "button" } 같은 모양이어야 해요.`);
@@ -127,51 +102,6 @@ export function parseStage(mapText: string, json: StageJson = {}, sprites: Recor
     for (const k of Object.keys(def)) if (!KEYS[type].includes(k)) throw new Error(`"${ch}"(${type})의 "${k}" 는 모르는 칸이에요. 쓸 수 있는 칸: ${KEYS[type].join(', ')}.`);
   }
   for (const ch of Object.keys(legend)) if (!/^[a-z0-9]$/.test(ch)) throw new Error(`장치 글자는 영문 소문자나 숫자 한 글자여야 해요: "${ch}"`);
-
-  const scaleJson = json.scales ?? {};
-  if (scaleJson === null || typeof scaleJson !== 'object' || Array.isArray(scaleJson)) throw new Error('scales 는 { "a": { "x": [2, 5], ... } } 모양이어야 해요.');
-  const scaleNames = Object.keys(scaleJson);
-  if (scaleNames.length > 6) throw new Error('저울은 한 스테이지에 6대까지예요.');
-  const range = (v: unknown, fallback: [number, number], what: string): [number, number] => {
-    if (v == null) return fallback;
-    if (typeof v === 'number') return [v, v];
-    if (Array.isArray(v) && v.length === 2 && v.every(n => typeof n === 'number')) return [v[0], v[1]];
-    throw new Error(`${what} 는 수 하나나 [작은 수, 큰 수] 로 적어 주세요.`);
-  };
-  const scaleSpecs = scaleNames.map(name => {
-    if (!/^[a-z0-9]{1,8}$/.test(name)) throw new Error(`저울 이름은 영문 소문자와 숫자 8자까지예요: "${name}"`);
-    const d = scaleJson[name] as ScaleJson;
-    if (d === null || typeof d !== 'object' || Array.isArray(d)) throw new Error(`저울 "${name}" 는 { "x": [2, 5], "left": { ... } } 모양이어야 해요.`);
-    for (const k of Object.keys(d)) if (!['x', 'left', 'right', 'opens', 'spill', 'skin'].includes(k)) throw new Error(`저울 "${name}" 의 "${k}" 는 모르는 칸이에요. 쓸 수 있는 칸: x, left, right, opens, spill, skin.`);
-    const skinDef = d.skin ?? {}, skin: { box?: Sprite; marble?: Sprite } = {};
-    if (skinDef === null || typeof skinDef !== 'object' || Array.isArray(skinDef)) throw new Error(`저울 "${name}" 의 skin 은 { "box": "그림 이름", "marble": "그림 이름" } 모양이에요.`);
-    for (const [k, limit] of [['box', 18], ['marble', 9]] as const) {
-      const v = (skinDef as Record<string, unknown>)[k];
-      if (v == null) continue;
-      const sp = pickSprite(sprites, v);
-      if (!sp) throw new Error(`저울 "${name}" 의 skin.${k} "${String(v)}" 그림이 팩의 sprites 폴더에 없어요.`);
-      if (sp.w > limit || sp.h > limit) throw new Error(`저울 "${name}" 의 ${k === 'box' ? '상자' : '구슬'} 그림은 ${limit}×${limit}점까지예요("${sp.name}" 은 ${sp.w}×${sp.h}).`);
-      skin[k] = sp;
-    }
-    for (const k of Object.keys(skinDef)) if (k !== 'box' && k !== 'marble') throw new Error(`저울 "${name}" 의 skin 에는 box 와 marble 만 적어요.`);
-    for (const side of ['left', 'right'] as const) { const v = d[side]; if (v != null && (typeof v !== 'object' || Array.isArray(v))) throw new Error(`저울 "${name}" 의 ${side} 는 { "boxes": 2 } 같은 모양이어야 해요.`); }
-    for (const k of Object.keys(d.left ?? {})) if (k !== 'boxes' && k !== 'marbles') throw new Error(`저울 "${name}" 의 left 에는 boxes 와 marbles 만 적어요.`);
-    for (const k of Object.keys(d.right ?? {})) if (k !== 'boxes') throw new Error(`저울 "${name}" 의 right 에는 boxes 만 적어요(오른쪽 구슬 수는 저울이 맞게 계산해요).`);
-    const spec: EquationSpec = {
-      x: range(d.x, [2, 5], `저울 "${name}" 의 x`),
-      leftBoxes: range(d.left?.boxes, [1, 1], `저울 "${name}" 의 왼쪽 상자`),
-      leftMarbles: range(d.left?.marbles, [0, 0], `저울 "${name}" 의 왼쪽 구슬`),
-      rightBoxes: range(d.right?.boxes, [0, 0], `저울 "${name}" 의 오른쪽 상자`),
-    };
-    const bad = checkSpec(spec);
-    if (bad) throw new Error(`저울 "${name}": ${bad}`);
-    const opens = d.opens ?? [];
-    if (!Array.isArray(opens) || opens.length > 8 || opens.some(o => typeof o !== 'string')) throw new Error(`저울 "${name}" 의 opens 는 다리 글자 목록이에요(8개까지). 예: ["x"]`);
-    for (const o of opens) if (legend[o]?.type !== 'bridge') throw new Error(`저울 "${name}" 이 여는 "${o}" 는 bridge 여야 해요.`);
-    const spill = d.spill ?? 0;
-    if (typeof spill !== 'number' || spill < 0 || spill > 60 || (spill > 0 && spill < 2)) throw new Error(`저울 "${name}" 의 spill 은 0(쏟아지지 않음)이거나 2~60 초예요.`);
-    return { name, spec, opens, spill, skin };
-  });
 
   const solid = new Uint8Array(cols * rows);
   let spawn: Stage['spawn'] | null = null, key: Stage['key'] = null, door: Stage['door'] = null;
@@ -199,13 +129,8 @@ export function parseStage(mapText: string, json: StageJson = {}, sprites: Recor
   if (at(dc, dr + 3) !== '#' || at(dc + 1, dr + 3) !== '#') throw new Error('문(D) 바로 아래 두 칸은 땅(#)이어야 해요.');
 
   const buttons: Button[] = [], bridges: Bridge[] = [], crates: CrateDef[] = [], signs: Sign[] = [];
-  const bins: Bin[] = [], levers: Lever[] = [], decos: Deco[] = [];
-  const panAt: Record<string, { left?: Rect; right?: Rect; floor?: number }> = {};
-  const scaleIndex = (ch: string, what: string, name: unknown) => {
-    const i = typeof name === 'string' ? scaleNames.indexOf(name) : -1;
-    if (i < 0) throw new Error(`${what} "${ch}" 의 scale 에 저울 이름을 적어 주세요(scales 에 있는 이름: ${scaleNames.join(', ') || '없음'}).`);
-    return i;
-  };
+  const decos: Deco[] = [];
+  const graph = emptyGraphStage();
   for (const [ch, def] of Object.entries(legend)) {
     const cells = found.get(ch);
     if (!cells) throw new Error(`legend 의 "${ch}" 가 지도에 없어요.`);
@@ -247,53 +172,15 @@ export function parseStage(mapText: string, json: StageJson = {}, sprites: Recor
       // 글자를 놓은 칸의 왼쪽 아래에 그림의 왼쪽 아래를 맞춘다(한 점이 2px)
       for (const [c, r] of cells) decos.push({ x: c * T, y: (r + 1) * T - sp.h * 2, sprite: sp });
       if (decos.length > 60) throw new Error('꾸밈 그림은 한 스테이지에 60개까지예요.');
-    } else if (def.type === 'pan') {
-      const si = scaleIndex(ch, '접시', def.scale), name = scaleNames[si];
-      if (def.side !== 'left' && def.side !== 'right') throw new Error(`접시 "${ch}" 의 side 는 "left" 나 "right" 예요.`);
-      const gs = groups(cells);
-      if (gs.length !== 1 || gs[0].some(x => x[1] !== gs[0][0][1])) throw new Error(`접시 "${ch}" 는 한 줄로 옆으로 이어진 한 덩어리여야 해요.`);
-      const cs = cells.map(x => x[0]), r = cells[0][1], c0 = Math.min(...cs), c1 = Math.max(...cs);
-      if (c1 - c0 + 1 < 6 || c1 - c0 + 1 > 8) throw new Error(`접시 "${ch}" 의 너비는 6~8칸이어야 해요(지금 ${c1 - c0 + 1}칸).`);
-      for (let c = c0; c <= c1; c++) {
-        for (let k = 1; k <= 3; k++) if (at(c, r + k) !== '.' && at(c, r + k) !== ' ') throw new Error(`접시 "${ch}" 아래 세 칸은 비워 주세요(땅도 다른 장치도 안 돼요). 도름이가 그 밑에 서서 올려놓아요.`);
-        if (at(c, r + 4) !== '#') throw new Error(`접시 "${ch}" 에서 네 칸 아래는 땅(#)이어야 해요(지도 ${r + 5}번째 줄 ${c + 1}번째 칸).`);
-        if (r < 7) throw new Error(`접시 "${ch}" 는 위에서 여덟째 줄이나 그 아래에 놓아 주세요(위에 저울대와 풀이 판이 걸려요).`);
-        for (let k = 1; k <= 3; k++) if (at(c, r - k) === '#') throw new Error(`접시 "${ch}" 위로 세 칸은 비워 주세요(저울대가 걸려요).`);
-      }
-      const slot = (panAt[name] ??= {});
-      if (slot[def.side]) throw new Error(`저울 "${name}" 에 ${def.side === 'left' ? '왼쪽' : '오른쪽'} 접시가 둘이에요.`);
-      slot[def.side] = { x: c0 * T, y: r * T, w: (c1 - c0 + 1) * T, h: T };
-      slot.floor = (r + 4) * T;
-    } else if (def.type === 'bin' || def.type === 'lever') {
-      const what = def.type === 'bin' ? '통' : '레버';
-      const si = scaleIndex(ch, what, def.scale);
-      if (def.type === 'lever' && def.does !== 'addsub' && def.does !== 'divide') throw new Error(`레버 "${ch}" 의 does 는 "addsub"(더하기·빼기)나 "divide"(나누기)예요.`);
-      for (const [c, r] of cells) {
-        if (at(c, r + 1) !== '#') throw new Error(`${what} "${ch}" 바로 아래는 땅(#)이어야 해요(지도 ${r + 1}번째 줄 ${c + 1}번째 칸).`);
-        const rect = { x: c * T, y: r * T, w: T, h: T };
-        if (def.type === 'bin') bins.push({ ...rect, scale: si });
-        else levers.push({ ...rect, scale: si, does: def.does! });
-      }
+    } else if (def.type in GRAPH_KEYS) {
+      parseGraphLegend(graph, ch, def as GraphLegend, cells, at, groups, legend);
     } else {
       throw new Error(`"${ch}" 의 type 을 모르겠어요. ${TYPES} 가운데 하나예요.`);
     }
   }
-  const scales: ScaleDef[] = scaleSpecs.map((sc, si) => {
-    const pan = panAt[sc.name];
-    if (!pan?.left || !pan.right) throw new Error(`저울 "${sc.name}" 에는 왼쪽 접시와 오른쪽 접시가 하나씩 있어야 해요(legend 에 type "pan").`);
-    if (pan.left.y !== pan.right.y) throw new Error(`저울 "${sc.name}" 의 두 접시는 같은 높이에 놓아 주세요.`);
-    if (pan.right.x - (pan.left.x + pan.left.w) < 2 * T) throw new Error(`저울 "${sc.name}" 의 두 접시 사이는 두 칸 이상 띄워 주세요(가운데에 기둥이 서요). 왼쪽 접시가 왼쪽에 와야 해요.`);
-    if (!bins.some(b => b.scale === si)) throw new Error(`저울 "${sc.name}" 에 통(type "bin")이 없어요. 구슬을 버리거나 꺼낼 곳이 있어야 해요.`);
-    const mine = levers.filter(l => l.scale === si);
-    if (mine.filter(l => l.does === 'addsub').length > 1 || mine.filter(l => l.does === 'divide').length > 1) throw new Error(`저울 "${sc.name}" 에 같은 일을 하는 레버가 둘이에요.`);
-    if (sc.spec.leftBoxes[1] - sc.spec.rightBoxes[0] > 1 && !mine.some(l => l.does === 'divide')) throw new Error(`저울 "${sc.name}" 은 상자가 둘 이상 남을 수 있어요. 나누기 레버(does "divide")를 놓아 주세요.`);
-    return { ...sc, pans: [pan.left, pan.right], floor: pan.floor!, hasAddSub: mine.some(l => l.does === 'addsub') };
-  });
-  // 통과 레버는 접시 밑이나 바로 옆 칸에 둘 수 없다(거기서 확인을 누르면 들고 놓기 대신 통·레버가 움직인다)
-  for (const d of [...bins, ...levers]) for (const sc of scales) for (const pan of sc.pans) {
-    if (d.x + d.w + T > pan.x && d.x - T < pan.x + pan.w) throw new Error(`통과 레버는 접시 밑이나 바로 옆 칸에 둘 수 없어요(지도 ${d.y / T + 1}번째 줄 ${d.x / T + 1}번째 칸). 접시에서 한 칸 넘게 띄워 주세요.`);
-  }
-  for (const b of bridges) if (!buttons.some(x => x.opens.includes(b.ch)) && !scales.some(x => x.opens.includes(b.ch))) throw new Error(`다리 "${b.ch}" 를 여는 단추나 저울이 없어요.`);
+  finishGraph(graph, legend);
+  const graphOpens = new Set([...graph.goals.flatMap(x => x.opens), ...graph.slots.flatMap(x => x.opens), ...(graph.sled?.opens ?? [])]);
+  for (const b of bridges) if (!buttons.some(x => x.opens.includes(b.ch)) && !graphOpens.has(b.ch)) throw new Error(`다리 "${b.ch}" 를 여는 단추나 장치가 없어요.`);
   const hint = json.hint ?? '';
-  return { cols, rows, solid, spawn, key, door, buttons, bridges, crates, signs, scales, decos, bins, levers, hint };
+  return { cols, rows, solid, spawn, key, door, buttons, bridges, crates, signs, decos, graph, hint };
 }

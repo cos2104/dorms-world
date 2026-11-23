@@ -1,26 +1,17 @@
 /**
  * 세계 요약. 방장만 물리를 돌리고, 손님은 방장이 초당 스무 번 보내는 요약을 받아 같은 그림을 그린다.
- * 요약은 화면에 보이는 것 전부와, 방장이 바뀌었을 때 새 방장이 그대로 이어 갈 수 있는 값(속도·저울의 시간들)을 담는다.
- * 저울의 답(x)은 싣지 않는다: 방 정보의 씨앗으로 모두가 같은 식을 뽑는다.
+ * 요약은 화면에 보이는 것 전부와, 방장이 바뀌었을 때 새 방장이 그대로 이어 갈 수 있는 값(속도·그래프 장치의 시간들)을 담는다.
  * 여기는 순수한 계산뿐이다(화면도 연결도 모른다). 받은 요약은 남이 보낸 글이므로 모양을 검사하고 나서 쓴다.
  */
-import { MAX_BOXES, MAX_MARBLES, type Line } from './equation';
+import { applyGraphWire, graphToWire, readGWire, type GWire } from './graph/wire';
 import { colorFor } from './identity';
 import { MAX_SEATS } from './room-rules';
-import { NOTE_LIST, NO_PAD, dividedNote, setPlayerCount, type Carry, type Pad, type World } from './sim';
+import { NO_PAD, setPlayerCount, type Pad, type World } from './sim';
 import { T } from './stage';
 
 /** 방장이 요약을 보내는 간격(물리 걸음 수). 60 / 3 = 초당 20번. */
 export const SNAP_EVERY = 3;
-const P = 8, C = 4, S_HEAD = 8;   // 도름이·상자 하나가 차지하는 칸 수, 저울 머리 칸 수
-const LINES_MAX = 8;
-/**
- * 저울 알림은 글이 아니라 번호로 싣는다: 0 없음, 1부터 sim.ts NOTE_LIST 의 차례, 100 + g 는 'g묶음으로 나눠…'.
- * 다른 기기가 보낸 글자를 화면에 그대로 그리는 칸은 요약에 하나도 없다(다리 글자 a 는 조회에만 쓴다).
- */
-const DIVIDED = 100;
-const noteCode = (text: string) => { const i = NOTE_LIST.indexOf(text); if (i >= 0) return i + 1; const m = /^(\d{1,2})묶음으로/.exec(text); return m && dividedNote(+m[1]) === text ? DIVIDED + +m[1] : 0; };
-const noteText = (code: number) => (code >= DIVIDED ? (code - DIVIDED >= 2 && code - DIVIDED <= MAX_MARBLES ? dividedNote(code - DIVIDED) : '') : NOTE_LIST[code - 1] ?? '');
+const P = 9, C = 4;   // 도름이·상자 하나가 차지하는 칸 수
 
 export type Wire = {
   r: number;                              // 판 번호(방 정보의 run). 지난 판의 요약은 버린다
@@ -31,27 +22,19 @@ export type Wire = {
   a: string;                              // 켜진 다리 글자들
   b: number[];                            // 단추마다 밟은 사람 수
   c: number[];                            // 상자마다 4칸: x, y, 떨어지는 속도, 미는 사람 수
-  p: number[];                            // 도름이마다 8칸: 자리 번호, x, y, vx, vy, 상태, 걷기, 든 것
-  s: number[][];                          // 저울마다: 통(0 더하기 1 빼기), 풀림, 기울기, 기운 시간, 수평 시간, 덜컹, 알림 시간, 알림 번호, 그리고 지금 식 4칸 + 풀이 판 줄마다 4칸
+  p: number[];                            // 도름이마다 9칸: 자리 번호, x, y, vx, vy, 상태, 걷기, 멈춤 시간, 그래프 위
+  g: GWire;                               // 그래프 공장 장치
 };
 
 const r1 = (v: number) => Math.round(v * 10) / 10, r2 = (v: number) => Math.round(v * 100) / 100;
 const ON = 1, IN_DOOR = 2, LEFT = 4, RIGHT = 8, TURN = 16, LOCK = 32, A_HELD = 64, J_HELD = 128;
-
-const packCarry = (c: Carry | null) => (c ? (c.kind === 'box' ? 2 : 1) + 3 * (c.from + 1) + 9 * c.scale : 0);
-function unpackCarry(v: number, scales: number): Carry | null {
-  if (!v) return null;
-  const kind = v % 3, from = Math.floor(v / 3) % 3 - 1, scale = Math.floor(v / 9);
-  if ((kind !== 1 && kind !== 2) || scale >= scales) return null;
-  return { kind: kind === 2 ? 'box' : 'marble', scale, from: from as 0 | 1 | -1 };
-}
 
 /** 방장: 지금 세계를 요약으로. seats 는 도름이 차례대로의 자리 번호(방 정보의 order). */
 export function toWire(w: World, seats: readonly number[], run: number, n: number): Wire {
   const p: number[] = [];
   w.players.forEach((q, i) => {
     const bits = (q.on ? ON : 0) | (q.inDoor ? IN_DOOR : 0) | (q.side === 'left' ? LEFT : q.side === 'right' ? RIGHT : 0) | (q.turnT > 0 ? TURN : 0) | (q.doorLock ? LOCK : 0) | (q.aHeld ? A_HELD : 0) | (q.jumpHeld ? J_HELD : 0);
-    p.push(seats[i] ?? i, r1(q.x), r1(q.y), Math.round(q.vx), Math.round(q.vy), bits, r1(q.walk % 4), packCarry(q.carry));
+    p.push(seats[i] ?? i, r1(q.x), r1(q.y), Math.round(q.vx), Math.round(q.vy), bits, r1(q.walk % 4), r2(Math.max(0, q.stun)), q.onCurve ? 1 : 0);
   });
   return {
     r: run, n, t: r2(w.t), f: (w.doorOpen ? 1 : 0) | (w.won ? 2 : 0),
@@ -60,7 +43,7 @@ export function toWire(w: World, seats: readonly number[], run: number, n: numbe
     b: w.pressed.slice(),
     c: w.crates.flatMap(c => [r1(c.x), r1(c.y), Math.round(c.vy), c.pushers]),
     p,
-    s: w.scales.map(sc => [sc.mode === 'sub' ? 1 : 0, sc.solved ? 1 : 0, sc.tilt, r2(sc.tiltT), r2(sc.calm), r2(Math.max(0, sc.shake)), r2(Math.max(0, sc.noteT)), sc.noteT > 0 ? noteCode(sc.note) : 0, ...sc.line, ...sc.lines.flat()]),
+    g: graphToWire(w.g),
   };
 }
 
@@ -75,13 +58,9 @@ export function readWire(x: unknown): Wire | null {
   if (!whole(o.r, 0, 1e9) || !whole(o.n, 0, 1e12) || !num(o.t) || o.t < 0 || !whole(o.f, 0, 3)) return null;
   if (!nums(o.k, 4) || o.k.length !== 4 || typeof o.a !== 'string' || o.a.length > 64) return null;
   if (!nums(o.b, 200) || !nums(o.c, 200 * C) || o.c.length % C || !nums(o.p, MAX_SEATS * P) || o.p.length % P) return null;
-  for (let i = 0; i < o.p.length; i += P) if (!whole(o.p[i], 0, MAX_SEATS - 1) || !whole(o.p[i + 5], 0, 255) || !whole(o.p[i + 7], 0, 9 * 64)) return null;
-  if (!Array.isArray(o.s) || o.s.length > 16) return null;
-  for (const s of o.s) {
-    if (!Array.isArray(s) || s.length < S_HEAD + 8 || s.length > S_HEAD + 4 + LINES_MAX * 4 || (s.length - S_HEAD) % 4) return null;
-    if (!s.every(num) || !whole(s[7], 0, DIVIDED + MAX_MARBLES)) return null;
-    for (let i = S_HEAD; i < s.length; i++) if (!whole(s[i], -MAX_MARBLES, MAX_MARBLES)) return null;
-  }
+  for (let i = 0; i < o.p.length; i += P) if (!whole(o.p[i], 0, MAX_SEATS - 1) || !whole(o.p[i + 5], 0, 255) || !whole(o.p[i + 8], 0, 1)) return null;
+  const g = readGWire(o.g);
+  if (!g) return null;
   return o as unknown as Wire;
 }
 
@@ -90,11 +69,11 @@ export const wireSeats = (wire: Wire) => { const out: number[] = []; for (let i 
 
 /**
  * 손님: 요약을 세계에 덮어쓴다. 세계는 같은 스테이지·같은 씨앗으로 만들어 둔 것이어야 한다.
- * 스테이지와 맞지 않는 요약(상자·저울·단추 수가 다름)은 쓰지 않고 false 를 돌려준다.
+ * 스테이지와 맞지 않는 요약(상자·단추·그래프 장치 수가 다름)은 쓰지 않고 false 를 돌려준다.
  */
 export function applyWire(w: World, wire: Wire): boolean {
   const st = w.stage;
-  if (wire.b.length !== st.buttons.length || wire.c.length !== st.crates.length * C || wire.s.length !== st.scales.length) return false;
+  if (wire.b.length !== st.buttons.length || wire.c.length !== st.crates.length * C) return false;
   const seats = wireSeats(wire);
   if (w.players.length !== seats.length || w.players.some((q, i) => q.color !== colorFor(seats[i]))) setPlayerCount(w, seats.map(colorFor));
   const sw = st.cols * T, sh = st.rows * T, inX = (v: number) => Math.max(-T, Math.min(sw + T, v)), inY = (v: number) => Math.max(-4 * T, Math.min(sh + 4 * T, v));
@@ -113,21 +92,11 @@ export function applyWire(w: World, wire: Wire): boolean {
     q.turnT = bits & TURN ? 0.1 : 0; q.doorLock = !!(bits & LOCK);
     q.aHeld = !!(bits & A_HELD); q.aNew = false; q.jumpHeld = !!(bits & J_HELD); q.jn = null; q.jumpBuf = 0;
     q.walk = ((wire.p[o + 6] % 4) + 4) % 4;              // 걷는 그림 번호가 음수가 되지 않게
-    q.carry = unpackCarry(wire.p[o + 7], w.scales.length);
+    q.stun = Math.max(0, Math.min(3, wire.p[o + 7])); q.onCurve = !!wire.p[o + 8]; q.jumpNew = false;
   });
-  w.scales.forEach((sc, i) => {
-    const s = wire.s[i];
-    const line = (at: number): Line => [box(s[at]), s[at + 1], box(s[at + 2]), s[at + 3]];
-    sc.mode = s[0] ? 'sub' : 'add'; sc.solved = !!s[1];
-    sc.tilt = s[2] < 0 ? -1 : s[2] > 0 ? 1 : 0;
-    sc.tiltT = Math.max(0, s[3]); sc.calm = Math.max(0, s[4]); sc.shake = Math.max(0, Math.min(1, s[5])); sc.noteT = Math.max(0, Math.min(5, s[6]));
-    sc.note = sc.noteT > 0 ? noteText(s[7]) : '';
-    sc.line = line(S_HEAD);
-    sc.lines = []; for (let at = S_HEAD + 4; at < s.length; at += 4) sc.lines.push(line(at));
-  });
+  if (!applyGraphWire(st.graph, w.g, wire.g, seats.length, sw, sh)) return false;
   return true;
 }
-const box = (v: number) => Math.max(0, Math.min(MAX_BOXES, v));
 /** 속도는 물리가 내는 범위 안으로 자른다(방장이 바뀌어 이 세계를 이어 굴릴 때 터무니없는 속도가 남지 않게). */
 const fast = (v: number) => Math.max(-1000, Math.min(1000, v));
 
@@ -154,8 +123,7 @@ export function blend(w: World, track: Track, now: number, dt: number): boolean 
   const b = track.b;
   if (!b || !applyWire(w, b)) return false;
   const a = track.a;
-  // 저울대의 기울기는 방장과 같은 식으로 스스로 따라간다(요약에 싣지 않는다)
-  for (const sc of w.scales) sc.lean += (sc.tilt - sc.lean) * Math.min(1, dt * 7);
+  void dt;
   if (!a || a.r !== b.r || a.p.length !== b.p.length || a.c.length !== b.c.length) return true;
   const k = Math.max(0, Math.min(1, (now - track.gap - track.ta) / Math.max(1, track.tb - track.ta)));
   if (k >= 1) return true;
@@ -168,6 +136,10 @@ export function blend(w: World, track: Track, now: number, dt: number): boolean 
   w.crates.forEach((c, i) => { c.x = mix(a.c[i * C], b.c[i * C], 48); c.y = mix(a.c[i * C + 1], b.c[i * C + 1], 90); });
   const h = w.key.holder != null ? w.players[w.key.holder] : null;
   if (h && !w.key.used) { w.key.x = h.x + h.w / 2 - 16; w.key.y = h.y - 26; }
+  // 든 조각·양동이는 섞은 도름이 자리를 따라간다
+  for (const pc of w.g.pieces) { const lead = pc.state === 'held' ? w.players[pc.holders[0]] : null; if (lead) { pc.x = lead.x + lead.w / 2; pc.y = lead.y - 3; } }
+  const bk = w.g.bucket, bh = bk && bk.holder >= 0 ? w.players[bk.holder] : null;
+  if (bk && bh) { bk.x = bh.x + bh.w / 2; bk.y = bh.y - 2; }
   return true;
 }
 

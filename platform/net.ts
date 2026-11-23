@@ -7,6 +7,7 @@ import { CLOSE, cleanNick, cleanPad, cleanRoomInfo, cleanTitle, emptyRoom, MAX_S
 import { validRoomCode } from './room-code';
 import { readWire, type Wire } from './sync';
 import type { Pad } from './sim';
+import { cleanOrder, type Order } from './graph/order';
 
 export type Seat = { seat: number; view: View };
 /** 방에서 나오게 된 까닭. */
@@ -26,6 +27,8 @@ export type RoomEvents = {
   room?(link: RoomLink, before: RoomInfo): void;
   /** 방장에게만: 손님의 조작 신호. */
   pad?(seat: number, pad: Pad): void;
+  /** 방장: 손님이 그래프 공장에 넣은 주문. */
+  order?(seat: number, order: Order): void;
   /** 손님에게만: 방장이 보낸 세계 요약. */
   snap?(wire: Wire): void;
   /** 연결이 끊겨 다시 붙는 중이다(몇 번째인지). 0 이면 다시 붙었다. */
@@ -133,6 +136,10 @@ export class RoomLink {
       const pad = cleanPad(m);
       if (!this.isHost || !pad || typeof m.s !== 'number' || !Number.isInteger(m.s) || m.s < 0 || m.s >= MAX_SEATS) return;
       this.ev.pad?.(m.s, { m: pad.m, j: !!pad.j, a: !!pad.a, jn: pad.n });
+    } else if (m.t === 'g') {
+      const order = cleanOrder(m.o);
+      if (!this.isHost || !order || typeof m.s !== 'number' || !Number.isInteger(m.s) || m.s < 0 || m.s >= MAX_SEATS) return;
+      this.ev.order?.(m.s, order);
     } else if (m.t === 's') {
       if (this.isHost) return;
       const wire = readWire(m.d);
@@ -252,6 +259,8 @@ export class RoomLink {
   private raw(text: string) { if (this.open && this.ws?.readyState === 1) this.ws.send(text); }
 
   /** 손님: 내 조작을 방장에게. */
+  /** 그래프 공장 주문을 방장에게(손님만). */
+  sendOrder(o: Order) { if (!this.isHost) this.raw(JSON.stringify({ t: 'g', ...o })); }
   sendPad(p: Pad) { const w: WirePad = { m: p.m, j: p.j ? 1 : 0, a: p.a ? 1 : 0, n: p.jn ?? 0 }; this.raw(JSON.stringify({ t: 'p', ...w })); }
   /** 방장: 세계 요약을 모두에게. 보낸 글자 수를 돌려준다(재 보려고). */
   sendSnap(wire: Wire) { const text = JSON.stringify({ t: 's', d: wire }); if (this.isHost) this.raw(text); return text.length; }

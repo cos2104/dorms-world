@@ -1,7 +1,8 @@
 /**
  * '깰 수 있는지' 봇. 판(platform/sim.ts)을 그대로 굴려 스테이지를 2명·8명·30명으로 끝까지 깨 본다.
  * 팩에는 아무것도 더 적지 않아도 된다(팩은 자료만). 봇은 판이 아는 장치만 쓴다:
- *   단추에 필요한 만큼 서 있기 · 상자 밀기 · 저울 풀기(양쪽에 같은 일) · 친구 머리 딛기(한 명) · 열쇠 · 문.
+ *   단추에 필요한 만큼 서 있기 · 상자 밀기 · 친구 머리 딛기(한 명) · 열쇠 · 문.
+ *   그래프 공장 장치가 있는 스테이지는 봇이 식을 모르므로 '확인 못 함'으로 알린다(그 스테이지는 tests/ 의 풀이 시험이 본다).
  * 할 일의 차례는 봇이 찾는다: 해 볼 수 있는 일을 하나씩 실제로 굴려 보고, 나아지면 그 뒤를 잇고 막히면 되돌아간다.
  * 친구 둘 이상을 쌓아야 닿는 자리처럼 봇이 못 하는 길만 남으면 '확인 못 함'으로 알린다(통과·실패로 꾸미지 않는다).
  * 브로콜리 검사(아무렇게나 누르는 봇이 깨면 안 된다)와는 목적이 다르다: 이것은 '풀 수 있게 만들어졌나'만 본다.
@@ -45,7 +46,6 @@ const bodyAt = (n: NavNode): Rect => ({ x: n.x, y: n.feet - PH, w: PW, h: PH });
 // ---------- 이름(알림 글) ----------
 const btnName = (st: Stage, bi: number) => `단추 '${st.buttons[bi].ch}'`;
 const crateName = (st: Stage, ci: number) => `상자 '${st.crates[ci].ch}'`;
-const scaleName = (st: Stage, si: number) => `저울 '${st.scales[si].name}'`;
 
 /**
  * 한 번 굴리기. 사람마다 맡은 일(Job)이 걸음마다 조작을 하나씩 내고, 감독(Director)이 일을 나눠 주고 끝을 본다.
@@ -64,14 +64,13 @@ class Run {
   busy(i: number) { return this.jobs.has(i); }
   holder(i: number) { for (const hs of this.s.holds.values()) if (hs.some(h => h.pi === i)) return true; return false; }
 
-  /** 움직이지 않는 사람(맡은 일이 없거나 단추를 지키는 사람)이 밟고 있는 단추로 켜진 다리. 저울이 연 다리도. exclude 는 빼고 센다. */
+  /** 움직이지 않는 사람(맡은 일이 없거나 단추를 지키는 사람)이 밟고 있는 단추로 켜진 다리. exclude 는 빼고 센다. */
   sustained(exclude: number[] = []): Set<string> {
     const w = this.w, st = w.stage, act = new Set<string>();
     st.buttons.forEach((btn, bi) => {
       const n = w.players.filter(p => !exclude.includes(p.i) && !p.inDoor && p.on && (!this.jobs.has(p.i) || this.jobs.get(p.i)!.kind === 'hold') && overlap({ x: p.x, y: p.y + 2, w: p.w, h: p.h }, btn)).length;
       if (n >= w.needs[bi]) for (const ch of btn.opens) act.add(ch);
     });
-    w.scales.forEach((sc, si) => { if (sc.solved) for (const ch of st.scales[si].opens) act.add(ch); });
     return act;
   }
   nav(exclude: number[] = []) { return navOf(this.w.stage, this.sustained(exclude), this.w.crates); }
@@ -421,47 +420,6 @@ function pushCrate(ci: number, d: -1 | 1): Macro {
   };
 }
 
-/** 저울: 두 사람이 양쪽 접시를 맡아 같은 일을 한다(상자 덜기, 구슬 덜기, 풍선이면 구슬 올리기, 나누기). */
-function solveScale(si: number): Macro {
-  return {
-    name: '', limit: 600,
-    run: function* (run) {
-      const w = run.w, st = w.stage, def = st.scales[si], sc = w.scales[si], [L, R] = def.pans, name = scaleName(st, si);
-      const floorAt = (x: number) => (n: NavNode) => Math.abs(n.feet - def.floor) < 1 && Math.abs(n.x - x) <= T;
-      const lw = freeBy(run, floorAt(L.x + L.w / 2));
-      if (lw.length < 2) return { ok: false, why: `${name}: 두 사람이 접시 밑으로 가야 하는데 ${lw.length}명만 갈 수 있어요` };
-      const rw = freeBy(run, floorAt(R.x + R.w / 2)).filter(o => o.i !== lw[0].i);
-      let A = lw[0].i, B = rw[0]?.i ?? lw[1].i;
-      if (w.players[A].x > w.players[B].x) [A, B] = [B, A];
-      const bins = st.bins.filter(b => b.scale === si);
-      const lbin = bins.filter(b => b.x < L.x).pop() ?? bins[0], rbin = bins.find(b => b.x > R.x) ?? bins[bins.length - 1];
-      const lever = (does: string) => st.levers.find(l => l.scale === si && l.does === does);
-      const spot = { lb: L.x + 20, lm: L.x + L.w * 0.7, rb: R.x + 20, rm: R.x + R.w * 0.7, lbin: lbin.x + 4, rbin: rbin.x + 4 };
-      const go = function* (i: number, x: number) {
-        const ok = yield* doJob(run, i, (function* () { return (yield* goTo(run, i, floorAt(x))) && (yield* walkX(run, i, x)); })(), 30 * 60);
-        if (!ok) throw new Error(`${name}: 도름이가 ${Math.round(x / T) + 1}번째 칸까지 못 갔어요`);
-      };
-      const tap = function* (...who: number[]) {
-        for (const i of who) { run.spawn(i, (function* () { yield { m: 0, j: false, a: true } as Pad; return true; })()); yield; }
-        yield;
-      };
-      const mode = function* (want: 'add' | 'sub') { if (def.hasAddSub && sc.mode !== want) { yield* go(A, lever('addsub')!.x + 4); yield* tap(A); } };
-      try {
-        for (let guard = 0; guard < 40 && !sc.solved; guard++) {
-          const [lb, lm, rb] = sc.line;
-          if (rb > 0) { yield* mode('sub'); yield* go(B, spot.rb); yield* go(A, spot.lb); yield* tap(A, B); yield* go(B, spot.rbin); yield* tap(B); yield* go(A, spot.lbin); yield* tap(A); }
-          else if (lm > 0) { yield* mode('sub'); yield* go(B, spot.rm); yield* go(A, spot.lm); yield* tap(A, B); yield* go(B, spot.rbin); yield* tap(B); yield* go(A, spot.lbin); yield* tap(A); }
-          else if (lm < 0) { yield* mode('add'); yield* go(B, spot.rbin); yield* tap(B); yield* go(A, spot.lbin); yield* tap(A); yield* go(B, spot.rm); yield* go(A, spot.lm); yield* tap(A, B); }
-          else if (lb > 1) { const lv = lever('divide'); if (!lv) return { ok: false, why: `${name}: 나누기 레버가 없어요` }; yield* go(B, spot.rm); yield* go(A, lv.x + 4); yield* tap(A); }
-          else yield* wait(100);
-          yield* wait(36);
-        }
-      } catch (e) { return { ok: false, soft: true, why: (e as Error).message }; }
-      return sc.solved ? { ok: true } : { ok: false, soft: true, why: `${name}: 양쪽에 같은 일을 해도 풀리지 않았어요` };
-    },
-  };
-}
-
 /** 문이 열렸다: 모두 들어간다. 단추를 지키는 사람은 맨 나중에, 떠나면 길이 끊기면 다른 사람이 건너편 단추를 대신 지킨다. */
 function evacuate(): Macro {
   return {
@@ -555,7 +513,7 @@ function signature(s: State) {
   const w = s.w;
   return [
     [...s.holds.keys()].sort().join(','), w.key.holder != null ? 1 : 0, w.doorOpen ? 1 : 0,
-    w.crates.map(c => `${Math.round(c.x / 10)},${Math.round(c.y / 10)}`).join(';'), w.scales.map(sc => (sc.solved ? 1 : 0)).join(''),
+    w.crates.map(c => `${Math.round(c.x / 10)},${Math.round(c.y / 10)}`).join(';'),
   ].join('|');
 }
 
@@ -569,7 +527,6 @@ function candidates(s: State): Macro[] {
     deliverLate = !cur || !nav.path(cur, doorGoal(w), 0);
     if (!deliverLate) out.push(deliverKey());
   } else out.push(fetchKey());
-  w.scales.forEach((sc, si) => { if (!sc.solved) out.push(Object.assign(solveScale(si), { name: `${scaleName(st, si)} 풀기` })); });
   const run = new Run(cloneState(s)), act = run.sustained();
   st.buttons.forEach((btn, bi) => {
     if (s.holds.has(bi)) return;
@@ -630,6 +587,7 @@ export type PlayOpts = { seed?: number; budgetMs?: number; maxTries?: number };
 /** 스테이지 하나를 people 명으로 끝까지 깨 본다. */
 export function playStage(stage: Stage, people: number, opts: PlayOpts = {}): StageRun {
   const t0 = performance.now(), budget = opts.budgetMs ?? 8000;
+  if (stage.graph.factories.length) return { people, verdict: 'unknown', seconds: 0, note: `${people}명: 그래프 공장 스테이지는 봇이 식을 몰라 확인하지 못해요. 사람이 직접 깨 보고, 풀이 시험(tests/graph-factory.test.ts)이 끝까지 가는지 봐요.`, steps: [], ms: 0 };
   const w = createWorld(stage, Array.from({ length: people }, () => ({ color: '#F4F7FF' })), opts.seed ?? 1);
   for (let f = 0; f < 40; f++) step(w, [], DT);
   const start: State = { w, holds: new Map(), depth: 0, did: [] };
@@ -638,7 +596,7 @@ export function playStage(stage: Stage, people: number, opts: PlayOpts = {}): St
   type Frame = { s: State; cands: Macro[]; k: number; why: string[]; soft: number };
   const stack: Frame[] = [{ s: start, cands: candidates(start), k: 0, why: [], soft: 0 }];
   let best: Frame = stack[0], tries = 0;
-  const score = (s: State) => (s.w.won ? 1e6 : 0) + (s.w.doorOpen ? 1e5 : 0) + (s.w.key.holder != null ? 1e4 : 0) + s.w.scales.filter(x => x.solved).length * 100 + s.depth;
+  const score = (s: State) => (s.w.won ? 1e6 : 0) + (s.w.doorOpen ? 1e5 : 0) + (s.w.key.holder != null ? 1e4 : 0) + s.depth;
   const finish = (verdict: Verdict, note: string, s: State): StageRun => ({ people, verdict, seconds: Math.round(s.w.t), note, steps: s.did, ms: Math.round(performance.now() - t0) });
   while (stack.length) {
     if (performance.now() - t0 > budget || tries >= (opts.maxTries ?? 60)) return finish('unknown', `${people}명: 시간 안에 끝까지 확인하지 못했어요. 봇이 ${tries}가지를 해 봤고 가장 멀리 간 곳은 '${whereOf(best.s)}'예요. 이 인원은 사람이 직접 깨 보세요.`, best.s);

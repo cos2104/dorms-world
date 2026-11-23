@@ -23,6 +23,8 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
+    "@cortex-js/compute-engine": "^0.35.6",
+    "mathlive": "^0.109.1",
     "qrcode-generator": "^2.0.4"
   }
 }

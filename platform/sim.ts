@@ -2,8 +2,8 @@
  * 2D 협력 물리. 화면과 떼어 놓아 시험과 방장 계산에 그대로 쓴다.
  * 시안(design-lab/game.js)에서 형이 직접 해 본 움직임(속도·점프·서로 비켜 가기·머리 위 올라타기)을 옮겼다.
  */
-import { T, resolveNeed, type Rect, type ScaleDef, type Stage } from './stage';
-import { MAX_BOXES, MAX_MARBLES, commonDivisor, isolated, makeEquation, rng, sameLine, stepOf, type Line } from './equation';
+import { T, resolveNeed, type Rect, type Stage } from './stage';
+import { createGraph, graphActionAt, graphTick, holdingPiece, riderSpot, surfaceBelow, type GAction, type GraphWorld, type Host } from './graph/model';
 
 export const G = 1900, SPEED = 175, JUMP = Math.sqrt(2 * G * 108), CRATE_SPEED = 55;
 export const PW = 22, PH = 38;
@@ -34,38 +34,15 @@ export type Player = Rect & {
   coyote: number;          // 발이 떨어진 뒤에도 뛸 수 있는 남은 시간(턱 끝에서 살짝 늦게 눌러도 뛴다)
   aHeld: boolean;          // 확인 단추를 누르고 있는 중
   aNew: boolean;           // 이번 걸음에 확인을 새로 눌렀다
-  carry: Carry | null;     // 머리 위로 든 구슬이나 상자(한 번에 하나)
+  stun: number;            // 빨간 공·벌에 맞아 멈춰 선 남은 시간
+  onCurve: boolean;        // 그래프 조각 위를 딛고 있다
+  jumpNew: boolean;        // 이번 걸음에 뛰기를 새로 눌렀다(썰매에 탄 도름이)
   doorLock: boolean;       // 문을 막 드나든 뒤, 확인에서 손을 뗄 때까지 다시 드나들지 않는다
   want: -1 | 0 | 1;        // 이번 걸음에 가려던 방향
   inDoor: boolean;
 };
 
 export type Crate = Rect & { vy: number; need: number; pushers: number };
-
-export type Item = 'box' | 'marble';
-/** from: 0 왼쪽 접시, 1 오른쪽 접시, -1 통에서 꺼낸 것. 떨어지거나 방을 나가면 꺼낸 접시로 돌아간다. */
-export type Carry = { kind: Item; scale: number; from: 0 | 1 | -1 };
-
-/**
- * 저울 하나의 지금 모습. 상자 하나가 x, 구슬 하나가 1이다(x 는 화면에 보이지 않는다).
- * 한쪽만 손대면 기울고, 양쪽에 같은 일을 하면 다시 수평이 된다. 수평이 될 때마다 풀이 판에 한 줄이 적힌다.
- */
-export type ScaleState = {
-  x: number;
-  line: Line;                 // 접시 위: [왼 상자, 왼 구슬, 오른 상자, 오른 구슬]. 구슬 수가 음수면 그만큼 풍선
-  mode: 'sub' | 'add';        // 더하기·빼기 레버의 자리(통이 버리는 곳인지 꺼내는 곳인지)
-  tilt: -1 | 0 | 1;           // -1 왼쪽이 무겁다, 1 오른쪽이 무겁다
-  lean: number;               // 그리기용. tilt 를 부드럽게 따라간다
-  tiltT: number;              // 기운 채로 지난 시간
-  calm: number;               // 수평으로 지난 시간
-  lines: Line[];              // 풀이 판. 마지막 줄이 쏟아졌을 때 돌아갈 자리다
-  solved: boolean;            // x 만 남았다
-  shake: number;              // 레버가 걸려 덜컹거리는 남은 시간
-  note: string; noteT: number;
-};
-export const BOX_PART = 0.4;  // 접시의 왼쪽 이만큼이 상자 칸, 나머지가 구슬 칸
-const CALM = 0.5;             // 이만큼 수평이 이어져야 한 줄로 친다(스쳐 지나가는 수평은 적지 않는다)
-const HOLD = 1.5;             // x 만 남은 채 이만큼 가만히 수평이어야 풀린 것으로 친다(마구 누르다 스친 것은 치지 않는다)
 
 export type World = {
   stage: Stage;
@@ -75,7 +52,7 @@ export type World = {
   pressed: number[];               // 단추별 지금 밟은 사람 수
   active: Set<string>;             // 켜진 다리 글자
   key: { x: number; y: number; holder: number | null; used: boolean };
-  scales: ScaleState[];
+  g: GraphWorld;                   // 그래프 공장 장치(조각·공·벌·썰매·목표)
   doorOpen: boolean;
   won: boolean;
   t: number;
@@ -83,7 +60,7 @@ export type World = {
 
 export const overlap = (a: Rect, b: Rect) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 
-/** seed 는 저울의 식을 뽑는 씨앗이다. 같은 씨앗이면 같은 식이 나온다. */
+/** seed 는 공·벌이 오는 차례를 정하는 씨앗이다. */
 export function createWorld(stage: Stage, players: { color: string }[], seed = 1): World {
   const n = players.length;
   return {
@@ -94,10 +71,7 @@ export function createWorld(stage: Stage, players: { color: string }[], seed = 1
     pressed: stage.buttons.map(() => 0),
     active: new Set(),
     key: { x: stage.key!.x, y: stage.key!.y, holder: null, used: false },
-    scales: stage.scales.map((def, si) => {
-      const eq = makeEquation(def.spec, rng(seed * 7919 + si * 104729 + 17));
-      return { x: eq.x, line: eq.line, mode: 'add', tilt: 0, lean: 0, tiltT: 0, calm: 0, lines: [[...eq.line] as Line], solved: false, shake: 0, note: '', noteT: 0 };
-    }),
+    g: createGraph(stage.graph, seed),
     doorOpen: false, won: false, t: 0,
   };
 }
@@ -157,7 +131,7 @@ function spawnPlayer(stage: Stage, i: number, color: string): Player {
   const at = spawnAt(stage, i);
   return {
     i, color, x: at.x, y: at.y, w: PW, h: PH,
-    vx: 0, vy: 0, on: false, side: null, turnT: 0, walk: 0, pressing: 0, pressCrate: -1, jumpHeld: false, jn: null, jumpBuf: 0, coyote: 0, aHeld: false, aNew: false, carry: null, doorLock: false, want: 0, inDoor: false,
+    vx: 0, vy: 0, on: false, side: null, turnT: 0, walk: 0, pressing: 0, pressCrate: -1, jumpHeld: false, jn: null, jumpBuf: 0, coyote: 0, aHeld: false, aNew: false, stun: 0, onCurve: false, jumpNew: false, doorLock: false, want: 0, inDoor: false,
   };
 }
 
@@ -166,7 +140,7 @@ export function setPlayerCount(w: World, colors: string[]) {
   while (w.players.length < colors.length) w.players.push(spawnPlayer(w.stage, w.players.length, colors[w.players.length]));
   if (w.players.length > colors.length) {
     if (w.key.holder != null && w.key.holder >= colors.length) dropKey(w);
-    for (const p of w.players.slice(colors.length)) returnCarry(w, p);
+    for (let i = w.players.length - 1; i >= colors.length; i--) graphRemove(w, i);
     w.players.length = colors.length;
   }
   w.players.forEach((p, i) => { p.color = colors[i]; });
@@ -178,7 +152,7 @@ export function setPlayerCount(w: World, colors: string[]) {
 /**
  * 가운데 사람이 나갔다: 그 도름이만 빼고 뒤 번호를 하나씩 당긴다(남은 도름이의 색과 자리는 그대로).
  * 열쇠를 들고 있었으면 내려놓는다(땅을 딛고 있었으면 그 발밑에, 공중이었으면 처음 자리로).
- * 든 구슬이나 상자는 꺼낸 접시로 돌아간다.
+ * 든 그래프 조각·양동이는 내려놓는다.
  */
 export function removePlayer(w: World, i: number) {
   const p = w.players[i];
@@ -187,7 +161,7 @@ export function removePlayer(w: World, i: number) {
     if (p.on && !p.inDoor) { w.key.holder = null; w.key.x = p.x + p.w / 2 - 16; w.key.y = p.y + p.h - 18; }
     else dropKey(w);
   } else if (w.key.holder != null && w.key.holder > i) w.key.holder--;
-  returnCarry(w, p);
+  graphRemove(w, i);
   w.players.splice(i, 1);
   w.players.forEach((q, k) => { q.i = k; });
   const n = w.players.length;
@@ -195,13 +169,22 @@ export function removePlayer(w: World, i: number) {
   w.needs = w.stage.buttons.map(b => resolveNeed(b.need, n));
 }
 
-/** 들고 있던 것을 내려놓는다. 접시에서 꺼낸 것은 그 접시로 돌아간다(식이 사라지지 않게). */
-function returnCarry(w: World, p: Player) {
-  const c = p.carry; p.carry = null;
-  if (!c || c.from < 0) return;
-  const sc = w.scales[c.scale];
-  const k = c.from * 2 + (c.kind === 'box' ? 0 : 1);
-  if (sc && !sc.solved && sc.line[k] < (c.kind === 'box' ? MAX_BOXES : MAX_MARBLES)) sc.line[k]++;   // 그새 접시가 가득 찼으면 버린 셈 친다
+/** 그 도름이가 든 것을 내려놓는다(조각은 떨어지고, 양동이는 놓이고, 썰매에서 내린다). */
+function release(w: World, i: number) {
+  const g = w.g;
+  for (const pc of g.pieces) if (pc.state === 'held' && pc.holders.includes(i)) {
+    if (pc.holders[0] === i) { pc.state = 'fall'; pc.holders = []; pc.vy = 0; } else pc.holders = pc.holders.filter(k => k !== i);
+  }
+  if (g.bucket?.holder === i) g.bucket.holder = -1;
+  if (g.sled?.rider === i) g.sled.rider = -1;
+}
+/** i 번째 도름이가 나갔다: 든 것을 내려놓고 뒤 번호를 하나씩 당긴다. */
+function graphRemove(w: World, i: number) {
+  release(w, i);
+  const g = w.g, sh = (k: number) => (k > i ? k - 1 : k);
+  for (const pc of g.pieces) pc.holders = pc.holders.map(sh);
+  if (g.bucket && g.bucket.holder > i) g.bucket.holder--;
+  if (g.sled && g.sled.rider > i) g.sled.rider--;
 }
 
 function dropKey(w: World) { w.key.holder = null; w.key.x = w.stage.key!.x; w.key.y = w.stage.key!.y; }
@@ -267,8 +250,12 @@ function tick(w: World, pads: (Pad | undefined)[], dt: number) {
   for (const p of w.players) { const a = !!pads[p.i]?.a; p.aNew = a && !p.aHeld; p.aHeld = a; }
   for (const p of w.players) {
     if (p.inDoor) continue;
-    const { m, j, jn } = pads[p.i] ?? NO_PAD;
-    p.vx = m * SPEED;
+    const pad = pads[p.i] ?? NO_PAD;
+    if (p.stun > 0) p.stun -= dt;
+    const stunned = p.stun > 0, m = stunned ? 0 : pad.m, j = stunned ? false : pad.j, jn = pad.jn;
+    // 무거운 그래프는 손이 모자라면 천천히 옮긴다(혼자서도 들 수는 있다)
+    const hp = holdingPiece(w.g, p.i), heavy = hp >= 0 ? Math.min(1, w.g.pieces[hp].holders.length / w.g.pieces[hp].shape.need) : 1;
+    p.vx = m * SPEED * (hp >= 0 ? 0.45 + 0.55 * heavy : 1);
     if (m) { const side = m > 0 ? 'right' : 'left'; if (side !== p.side) { p.side = side; p.turnT = 0.18; } }
     if (p.turnT > 0) p.turnT -= dt;
     p.pressing = 0; p.pressCrate = -1; p.want = m;
@@ -278,7 +265,8 @@ function tick(w: World, pads: (Pad | undefined)[], dt: number) {
     // 한 번 누름에 한 번만 뛴다: 누르고 있는 동안 저절로 다시 뛰지는 않는다.
     const pressed = jn != null && p.jn != null ? jn !== p.jn : j && !p.jumpHeld;
     p.jn = jn ?? null;   // 조작이 끊긴 동안(다른 도름이를 움직이는 중, 신호가 빠진 걸음)에는 기준을 지운다. 돌아온 첫 걸음은 횟수 대신 '누르고 있나'가 바뀐 것으로 본다
-    if (pressed) p.jumpBuf = JUMP_BUFFER;
+    p.jumpNew = pressed && !stunned;
+    if (pressed && !stunned) p.jumpBuf = JUMP_BUFFER;
     p.jumpHeld = j;
     p.coyote = p.on ? COYOTE : p.coyote - dt;
     if (p.jumpBuf > 0 && p.coyote > 0) { p.vy = -JUMP; p.on = false; p.jumpBuf = 0; p.coyote = 0; }
@@ -299,7 +287,12 @@ function tick(w: World, pads: (Pad | undefined)[], dt: number) {
     const under = p.vy > 0 ? touch : null;
     const onHead = !!under && p.y + p.h <= under.y + 2;
     const bonk = p.vy < 0 && !!touch && touch.y + touch.h <= p.y + 2;   // 머리 위에 친구가 서 있으면 못 뛰어오른다
-    if (blocked(w, ry, inside) || onHead || bonk) {
+    // 그래프 조각 위: 내려오다가 곡선에 닿으면 선다(밑에서 뛰어오를 때는 지나간다)
+    const curve = p.vy >= 0 ? surfaceBelow(w.g, p.x + 3, p.x + p.w - 3, p.y + p.h - (p.onCurve ? 9 : 1), ny + p.h + (p.onCurve ? 9 : 0)) : null;
+    if (curve != null && !onHead && !blocked(w, { x: p.x, y: curve - p.h, w: p.w, h: p.h }, inside)) {
+      p.y = curve - p.h; p.vy = 0; p.on = true; p.onCurve = true;
+    } else if (blocked(w, ry, inside) || onHead || bonk) {
+      p.onCurve = false;
       if (p.vy > 0) {
         p.on = true;
         let y = p.y;
@@ -311,14 +304,14 @@ function tick(w: World, pads: (Pad | undefined)[], dt: number) {
         p.y = y;
       }
       p.vy = 0;
-    } else { p.y = ny; p.on = false; }
+    } else { p.y = ny; p.on = false; p.onCurve = false; }
     if (Math.abs(p.vx) > 0 && p.on) p.walk += dt * 10; else p.walk *= 0.8;
 
     if (p.y > stage.rows * T + 60) { // 떨어지면 시작 자리로
       const at = spawnAt(stage, p.i);
       p.x = at.x; p.y = at.y; p.vx = 0; p.vy = 0; p.jumpBuf = 0;   // 누른 채 떨어졌어도 되살아난 자리에서 저절로 뛰지 않는다
       if (w.key.holder === p.i) dropKey(w);
-      returnCarry(w, p);
+      release(w, p.i);
     }
   }
 
@@ -364,7 +357,7 @@ function tick(w: World, pads: (Pad | undefined)[], dt: number) {
     let spot: number | null = null;
     for (let d = 0; d <= b.w && spot == null; d += 4) for (const x of [near + d, near - d]) if (x >= b.x - p.w / 2 && x <= b.x + b.w - p.w / 2 && okAt(x)) { spot = x; break; }
     if (spot != null) { p.x = spot; p.y = b.y - p.h; p.vy = 0; }
-    else { const at = spawnAt(stage, p.i); p.x = at.x; p.y = at.y; p.vx = 0; p.vy = 0; p.jumpBuf = 0; if (w.key.holder === p.i) dropKey(w); returnCarry(w, p); }
+    else { const at = spawnAt(stage, p.i); p.x = at.x; p.y = at.y; p.vx = 0; p.vy = 0; p.jumpBuf = 0; if (w.key.holder === p.i) dropKey(w); release(w, p.i); }
   }
 
   // 겹친 도름이끼리는 조금씩 떨어진다(같은 칸에서 시작했거나 되살아난 자리에 친구가 있던 경우). 갈 곳이 막혀 있으면 그대로 둔다.
@@ -377,16 +370,19 @@ function tick(w: World, pads: (Pad | undefined)[], dt: number) {
     mv(left, -0.5); mv(right, 0.5);
   }
 
-  scaleTick(w, dt);
+  // 그래프 공장: 확인 누름 · 조각 · 공 · 벌 · 썰매 · 목표
+  const opened = new Set<string>();
+  graphTick(stage.graph, w.g, hostOf(w), dt, opened, () => 1);
+  const sled = w.g.sled;
+  if (sled?.run && sled.rider >= 0) { const p = w.players[sled.rider], at = riderSpot(sled); if (p) { p.x = at.x; p.y = at.y; p.vx = 0; p.vy = 0; p.on = true; } }
 
   // 단추와 다리
-  w.active = new Set();
+  w.active = opened;
   stage.buttons.forEach((btn, bi) => {
     const n = w.players.filter(p => !p.inDoor && p.on && overlap({ x: p.x, y: p.y + 2, w: p.w, h: p.h }, btn)).length;
     w.pressed[bi] = n;
     if (n >= w.needs[bi]) for (const ch of btn.opens) w.active.add(ch);
   });
-  w.scales.forEach((sc, si) => { if (sc.solved) for (const ch of stage.scales[si].opens) w.active.add(ch); });
 
   // 열쇠와 문
   const k = w.key, door = stage.door!;
@@ -407,7 +403,7 @@ function tick(w: World, pads: (Pad | undefined)[], dt: number) {
       const a = p.aHeld, pressed = p.aNew;
       if (!a) p.doorLock = false;
       // 확인을 누른 채 문 앞에 서면 들어간다. 문 안에서 확인을 새로 누르면 다시 나온다(먼저 들어간 친구가 도우러 나올 수 있다).
-      if (!p.inDoor && a && !p.doorLock && atDoor(w, p)) { returnCarry(w, p); p.inDoor = true; p.doorLock = true; p.vx = 0; p.vy = 0; }
+      if (!p.inDoor && a && !p.doorLock && atDoor(w, p)) { release(w, p.i); p.inDoor = true; p.doorLock = true; p.vx = 0; p.vy = 0; }
       else if (p.inDoor && pressed) { p.inDoor = false; p.doorLock = true; p.x = door.x + door.w / 2 - p.w / 2; p.y = door.y + door.h - p.h; p.vx = 0; p.vy = 0; }
     }
     if (w.players.length > 0 && w.players.every(p => p.inDoor)) w.won = true;
@@ -435,138 +431,24 @@ function pushers(w: World, ci: number, d: -1 | 1): Player[] {
   return chain;
 }
 
-// ---------- 저울 ----------
+// ---------- 그래프 장치에 넘기는 판의 모습 ----------
+/** 판 점(x, y)이 땅이나 켜진 다리 안인가. */
+function solidPoint(w: World, x: number, y: number) {
+  const c = Math.floor(x / T), r = Math.floor(y / T);
+  if (tileSolid(w, c, r)) return true;
+  for (const b of w.stage.bridges) if (bridgeSolid(w, b.ch, b.mode) && b.cells.some(([bc, br]) => bc === c && br === r)) return true;
+  return false;
+}
+export function hostOf(w: World): Host {
+  const n = w.players.length;
+  return { stageW: w.stage.cols * T, stageH: w.stage.rows * T, solidAt: (x, y) => solidPoint(w, x, y), players: w.players, need: (k: number) => resolveNeed(k, n) };
+}
 
-/** 접시 밑에 서서 손이 닿는 자리(접시 칸부터 땅까지). */
-export const panZone = (def: ScaleDef, side: 0 | 1): Rect => ({ x: def.pans[side].x, y: def.pans[side].y, w: def.pans[side].w, h: def.floor - def.pans[side].y });
-const beside = (p: Rect, r: Rect) => overlap(p, { x: r.x - 6, y: r.y - T, w: r.w + 12, h: r.h + T });
-
-export type Action =
-  | { do: 'lever'; lever: number }
-  | { do: 'place' | 'take'; scale: number; side: 0 | 1; kind: Item }
-  | { do: 'discard' | 'draw'; scale: number }
-  | { do: 'no'; scale: number; why: string };
-
-/** 지금 자리에서 확인을 누르면 일어날 일. 화면의 안내 글과 실제 동작이 같은 판단을 쓴다. */
+export type Action = GAction;
+/** 지금 자리에서 확인을 누르면 일어날 일(화면의 안내 글과 실제 동작이 같은 판단을 쓴다). */
 export function actionAt(w: World, p: Player): Action | null {
-  const s = w.stage;
   if (p.inDoor || atDoor(w, p)) return null;
-  for (let i = 0; i < s.levers.length; i++) if (!w.scales[s.levers[i].scale].solved && beside(p, s.levers[i])) return { do: 'lever', lever: i };
-  for (const b of s.bins) {
-    const sc = w.scales[b.scale], free = !s.scales[b.scale].hasAddSub;
-    if (sc.solved || !beside(p, b)) continue;
-    if (p.carry && p.carry.scale !== b.scale) return { do: 'no', scale: b.scale, why: NOTE.otherBin };   // 남의 통에 버려 레버를 건너뛰지 못하게
-    if (p.carry) return free || sc.mode === 'sub' ? { do: 'discard', scale: b.scale } : { do: 'no', scale: b.scale, why: NOTE.addOnly };
-    return free || sc.mode === 'add' ? { do: 'draw', scale: b.scale } : { do: 'no', scale: b.scale, why: NOTE.subOnly };
-  }
-  for (let si = 0; si < s.scales.length; si++) {
-    const sc = w.scales[si], def = s.scales[si];
-    if (sc.solved) continue;
-    for (const side of [0, 1] as const) {
-      if (!overlap(p, panZone(def, side))) continue;
-      const boxes = sc.line[side * 2], marbles = sc.line[side * 2 + 1];
-      if (p.carry) {
-        if (p.carry.scale !== si) return { do: 'no', scale: si, why: NOTE.otherScale };
-        if (p.carry.kind === 'box' ? boxes >= MAX_BOXES : marbles >= MAX_MARBLES) return { do: 'no', scale: si, why: NOTE.full };
-        return { do: 'place', scale: si, side, kind: p.carry.kind };
-      }
-      const atBoxes = p.x + p.w / 2 < def.pans[side].x + def.pans[side].w * BOX_PART;
-      if (!atBoxes && marbles < 0) return { do: 'no', scale: si, why: NOTE.balloon };
-      const kind: Item | null = atBoxes ? (boxes ? 'box' : marbles > 0 ? 'marble' : null) : (marbles > 0 ? 'marble' : boxes ? 'box' : null);
-      return kind ? { do: 'take', scale: si, side, kind } : null;
-    }
-  }
-  return null;
-}
-
-/**
- * 저울 알림 글은 모두 여기에 있다. 손님에게는 글이 아니라 이 목록의 번호가 간다(platform/sync.ts):
- * 방장 기기가 다른 사람 화면에 아무 글이나 띄우지 못하게, 화면에 뜨는 글은 그 기기의 코드가 만든 것뿐이다.
- * 알림 글을 새로 지을 때는 반드시 여기에 더한다.
- */
-export const NOTE = {
-  otherBin: '다른 저울의 통이에요', addOnly: '지금은 더하기라 버릴 수 없어요', subOnly: '지금은 빼기라 꺼낼 수 없어요',
-  otherScale: '다른 저울에서 가져온 것이에요', full: '접시가 가득 찼어요', balloon: '풍선은 뗄 수 없어요. 구슬을 올리면 하나씩 터져요',
-  sameBoxes: '양쪽 상자 수가 같으면 x 를 알 수 없어요', tilted: '저울이 기울어 있으면 나눌 수 없어요', uneven: '똑같이 나눌 수 없어요',
-  spilled: '저울이 쏟아져서 처음 식으로 돌아갔어요',
-} as const;
-export const NOTE_LIST: readonly string[] = Object.values(NOTE);
-export const dividedNote = (g: number) => `${g}묶음으로 나눠 한 묶음만 남겼어요`;
-
-const say = (sc: ScaleState, text: string) => { sc.note = text; sc.noteT = 2.2; };
-
-/**
- * 접시를 되돌린다. 그 저울의 것을 들고 있던 손도 비운다.
- * toStart 면 처음 식으로(풀이 판도 첫 줄만 남긴다), 아니면 마지막으로 수평이던 줄로.
- */
-function revert(w: World, si: number, why: string, toStart = false) {
-  const sc = w.scales[si];
-  if (toStart) sc.lines.length = 1;
-  sc.line = [...sc.lines[sc.lines.length - 1]] as Line;
-  for (const p of w.players) if (p.carry?.scale === si) p.carry = null;
-  sc.tiltT = 0; sc.calm = 0; say(sc, why);
-}
-
-/**
- * 수평인 지금의 식을 풀이 판에 적는다. 같은 갈래의 일(구슬 더하고 빼기, 상자 더하고 빼기)을 이어서 하면
- * 앞 줄에서 본 순 결과 한 줄로 모으고(1씩 세 번 빼면 '3을 뺀다'), 앞 줄로 되돌아가면 줄을 지운다.
- * 양쪽 상자 수가 같아 x 를 알 수 없으면 적지 않고 앞 줄로 되돌린다(false).
- */
-function record(w: World, si: number): boolean {
-  const sc = w.scales[si], n = sc.lines.length, last = sc.lines[n - 1], cur = sc.line;
-  if (sameLine(cur, last)) return true;
-  if (cur[0] === cur[2]) { revert(w, si, NOTE.sameBoxes); return false; }
-  const before = sc.lines[n - 2];
-  const family = (k: string) => (k === 'sub' || k === 'add' ? 'm' : k === 'subx' || k === 'addx' ? 'x' : '');
-  if (before && sameLine(cur, before)) sc.lines.pop();
-  else if (before && family(stepOf(before, last).kind) && family(stepOf(before, last).kind) === family(stepOf(before, cur).kind)) sc.lines[n - 1] = [...cur] as Line;
-  else sc.lines.push([...cur] as Line);
-  if (sc.lines.length > 8) sc.lines.splice(1, 1);
-  return true;
-}
-
-function scaleTick(w: World, dt: number) {
-  const s = w.stage;
-  for (const p of w.players) {
-    if (!p.aNew || p.inDoor) continue;
-    const act = actionAt(w, p);
-    if (!act) continue;
-    if (act.do === 'no') { say(w.scales[act.scale], act.why); continue; }
-    if (act.do === 'lever') {
-      const lever = s.levers[act.lever], sc = w.scales[lever.scale];
-      if (lever.does === 'addsub') { sc.mode = sc.mode === 'add' ? 'sub' : 'add'; continue; }
-      // 나누기: 수평일 때, 접시 위 모든 묶음이 똑같이 나뉠 때만 된다
-      const g = commonDivisor(sc.line);
-      if (sc.tilt !== 0) { sc.shake = 0.5; say(sc, NOTE.tilted); }
-      else if (g <= 1) { sc.shake = 0.5; say(sc, NOTE.uneven); }
-      else if (record(w, lever.scale)) { sc.line = sc.line.map(v => v / g) as Line; sc.calm = 0; say(sc, dividedNote(g)); }   // 방금 수평이 된 식을 먼저 적고 나눈다(빼기 줄이 빠지지 않게)
-      continue;
-    }
-    const sc = w.scales[act.scale];
-    if (act.do === 'place') { sc.line[act.side * 2 + (act.kind === 'box' ? 0 : 1)]++; p.carry = null; }
-    else if (act.do === 'take') { sc.line[act.side * 2 + (act.kind === 'box' ? 0 : 1)]--; p.carry = { kind: act.kind, scale: act.scale, from: act.side }; }
-    else if (act.do === 'discard') p.carry = null;
-    else p.carry = { kind: 'marble', scale: act.scale, from: -1 };
-  }
-
-  w.scales.forEach((sc, si) => {
-    const def = s.scales[si];
-    if (sc.noteT > 0) sc.noteT -= dt;
-    if (sc.shake > 0) sc.shake -= dt;
-    const left = sc.line[0] * sc.x + sc.line[1], right = sc.line[2] * sc.x + sc.line[3];
-    sc.tilt = sc.solved ? 0 : left > right ? -1 : right > left ? 1 : 0;
-    sc.lean += (sc.tilt - sc.lean) * Math.min(1, dt * 7);
-    if (sc.solved) return;
-    if (sc.tilt) {
-      sc.calm = 0; sc.tiltT += dt;
-      if (def.spill > 0 && sc.tiltT >= def.spill) revert(w, si, NOTE.spilled, true);
-      return;
-    }
-    sc.tiltT = 0; sc.calm += dt;
-    if (sc.calm < CALM) return;
-    if (!record(w, si)) return;
-    if (isolated(sc.line) && sc.calm >= HOLD) { sc.solved = true; for (const p of w.players) if (p.carry?.scale === si) p.carry = null; }
-  });
+  return graphActionAt(w.stage.graph, w.g, hostOf(w), p.i);
 }
 
 /** 열린 문 앞에 서 있는가(확인을 누르면 들어갈 수 있는 자리). */
@@ -581,8 +463,6 @@ export type Snapshot = {
   key: [number, number, number, number];           // x, y, 든 사람(-1 없음), 쓴 여부
   cr: [number, number, number][];                  // x, y, 미는 사람 수
   pl: [number, number, number, number, number][];  // x, y, vx, 상태 비트, 걷기
-  sc: number[][];                                  // 저울마다: 왼 상자, 왼 구슬, 오른 상자, 오른 구슬, 통(0 더하기 1 빼기), 풀림, 기울기
-  ca: number[];                                    // 사람마다 든 것: 0 없음, 1 구슬, 2 상자
 };
 
 export function snapshot(w: World): Snapshot {
@@ -591,7 +471,5 @@ export function snapshot(w: World): Snapshot {
     key: [Math.round(w.key.x), Math.round(w.key.y), w.key.holder ?? -1, w.key.used ? 1 : 0],
     cr: w.crates.map(c => [Math.round(c.x * 10) / 10, Math.round(c.y), c.pushers]),
     pl: w.players.map(p => [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10, Math.round(p.vx), (p.on ? 1 : 0) | (p.inDoor ? 2 : 0) | (p.side === 'left' ? 4 : p.side === 'right' ? 8 : 0) | (p.turnT > 0 ? 16 : 0), Math.round(p.walk * 10) / 10]),
-    sc: w.scales.map(sc => [...sc.line, sc.mode === 'sub' ? 1 : 0, sc.solved ? 1 : 0, sc.tilt]),
-    ca: w.players.map(p => (p.carry ? (p.carry.kind === 'box' ? 2 : 1) : 0)),
   };
 }

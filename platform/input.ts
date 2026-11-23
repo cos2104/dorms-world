@@ -22,6 +22,9 @@ export class PadInput {
   private jn = 0;                       // 뛰기를 새로 누른 횟수
   private lastDir: -1 | 1 = 1;          // 좌우 가운데 나중에 누른 쪽
   private el: HTMLElement | null = null;
+  /** 창(찍는 방·손잡이 방)을 연 동안: 자판을 조작으로 읽지 않는다. 닫을 때 눌려 있던 키를 모두 뗀 것으로 본다. */
+  paused = false;
+  pause(on: boolean) { this.paused = on; this.clear(); }
 
   constructor() {
     window.addEventListener('keydown', this.down);
@@ -32,7 +35,7 @@ export class PadInput {
 
   private typing(e: KeyboardEvent) {
     const t = e.target as HTMLElement | null;
-    return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+    return this.paused || (!!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.tagName === 'MATH-FIELD' || t.isContentEditable));
   }
   private down = (e: KeyboardEvent) => {
     if (this.typing(e)) return;
@@ -75,6 +78,7 @@ export class PadInput {
   }
 
   read(): Pad {
+    if (this.paused) return { m: 0, j: false, jn: this.jn, a: false };
     const k = new Set([...this.keys, ...this.fresh]); this.fresh.clear();
     const any = (set: Set<string>) => { for (const c of set) if (k.has(c)) return true; return false; };
     const l = any(LEFT_KEYS) || this.touch.l, r = any(RIGHT_KEYS) || this.touch.r;

@@ -25,7 +25,10 @@ import { findPack, type Pack } from '../platform/packs';
 import { cameraFor, nearText, padLift, render, type Camera } from '../platform/render';
 import { cleanRoomCode, newRoomCode, validRoomCode } from '../platform/room-code';
 import { MAX_SEATS, NOTICE, nextRun, NICK_MAX, TITLE_MAX, cleanNick, cleanTitle, readPass, type PassClaims, type PublicRoom, type RoomInfo } from '../platform/room-rules';
-import { createWorld, removePlayer, setPlayerCount, step, type Pad, type World } from '../platform/sim';
+import { actionAt, createWorld, hostOf, removePlayer, setPlayerCount, step, type Pad, type World } from '../platform/sim';
+import { orderDone, orderProblem, placeOrder } from '../platform/graph/model';
+import type { Order } from '../platform/graph/order';
+import { openPanel } from './graph-panel';
 import { GuestPads, SNAP_EVERY, applyWire, blend, newTrack, padSender, pushWire, toWire, wireSeats, type Track, type Wire } from '../platform/sync';
 import { esc, mmss } from '../platform/text';
 
@@ -215,6 +218,7 @@ function enter(code: string, o: { create?: boolean; pub?: boolean; big?: boolean
     rank: news => { lastRank = news; game?.onRank(); },
     room: l => { if (l === link) { refresh(); tryClaim(false); } },
     pad: (seat, pad) => game?.onPad(seat, pad),
+    order: (seat, order) => game?.onOrder(seat, order),
     snap: wire => game?.onSnap(wire),
     retry: n => { if (mine === link) toast(n ? '연결이 끊겼어요. 다시 잇고 있어요.' : '', 0); },
     down: why => {
@@ -724,7 +728,7 @@ function drawPad() {
 }
 
 // ---------- 게임 화면 ----------
-type Game = { key: string; stop(): void; sync(): void; onPad(seat: number, pad: Pad): void; onSnap(wire: Wire): void; reorder(before: number[], after: number[]): void; onRank(): void };
+type Game = { key: string; stop(): void; sync(): void; onPad(seat: number, pad: Pad): void; onOrder(seat: number, order: Order): void; onSnap(wire: Wire): void; reorder(before: number[], after: number[]): void; onRank(): void };
 /** 방 서버가 마지막으로 알려 준 순위 소식(어느 판의 것인지는 run 으로 가린다). */
 let lastRank: RankNews | null = null;
 const netStats = { snapBytes: 0, snaps: 0, stepMs: 0, steps: 0, frameMs: 0, frames: 0, got: 0, since: 0 };
@@ -808,11 +812,36 @@ function openGame(p: Pack, si: number) {
     rankLine();
   };
 
+  // 그래프 공장: 찍는 방·손잡이 방 앞에서 확인을 누르면 이 기기에서 창을 연다. 방장은 바로 넣고, 손님은 방장에게 보낸다
+  let panel: (() => void) | null = null, prevA = false;
+  const tryPanel = (a: boolean) => {
+    const rose = a && !prevA; prevA = a;
+    const mi = meIdx(), me = world.players[mi];
+    if (!rose || panel || !me || world.won) return false;
+    const act = actionAt(world, me);
+    if (!act || (act.do !== 'press' && act.do !== 'desk')) return false;
+    input.pause(true);
+    panel = openPanel({
+      host: box, kind: act.do, fac: act.fac, latex: () => world.g.factories[act.fac]?.latex ?? '',
+      send: order => {
+        const k = link; if (!k) return '방과 연결이 끊겼어요';
+        const at = meIdx();
+        if (k.isHost) { const note = placeOrder(stage.graph, world.g, hostOf(world), at, order); return orderDone(note) ? '' : note; }
+        const bad = orderProblem(stage.graph, world.g, hostOf(world), at, order);
+        if (bad) return bad;
+        k.sendOrder(order); return '';
+      },
+      onClose: () => { panel = null; input.pause(false); },
+    });
+    return true;
+  };
+
   const frame = (now: number) => {
     raf = requestAnimationFrame(frame);
     const k = link; if (!k) return;
     const t0 = performance.now(), dt = Math.min((now - last) / 1000, 0.1); last = now;
-    const myPad = input.read();
+    let myPad = input.read();
+    if (tryPanel(!!myPad.a)) myPad = { ...myPad, a: false };
     if (k.isHost !== wasHost) {
       wasHost = k.isHost;
       // 방장이 됐다: 마지막 요약에서 이어서 굴린다. 그 요약에 남아 있는 나간 사람의 도름이는 지금 차례에 맞춰 뺀다
@@ -865,7 +894,7 @@ function openGame(p: Pack, si: number) {
     key,
     stop() {
       if (!alive) return; alive = false;
-      cancelAnimationFrame(raf); input.dispose();
+      cancelAnimationFrame(raf); input.dispose(); panel?.();
       if (game === mine) game = null;
       if (shown === 'game') shown = '';
     },
@@ -878,6 +907,11 @@ function openGame(p: Pack, si: number) {
     },
     onRank() { if (ended) rankLine(); },
     onPad(seat, pad) { pads.set(seat, pad, performance.now()); },
+    onOrder(seat, order) {
+      const k = link; if (!k?.isHost) return;
+      const at = k.room.order.indexOf(seat);
+      if (at >= 0) placeOrder(stage.graph, world.g, hostOf(world), at, order);
+    },
     onSnap(wire) { if (link && !link.isHost && pushWire(track, wire, link.room.run, performance.now())) { netStats.got++; tryClaim(true); } },
     reorder(before, after) {
       for (let i = before.length - 1; i >= 0; i--) if (!after.includes(before[i])) removePlayer(world, i);
