@@ -9,7 +9,7 @@ export const REPO = 'shinnanchanguk/dorms-world';
 const API = 'https://api.github.com/repos/';
 const RAW = 'https://raw.githubusercontent.com/';
 const MAX_FILE = 300 * 1024, MAX_FILES = 120;
-const ALLOWED = /^(pack\.json|DESIGN\.md|stages\/\d{2}\.(json|map\.txt)|sprites\/[a-z0-9-]+\.txt|[a-z0-9-]+\.(png|webp))$/;
+const ALLOWED = /^(pack\.json|DESIGN\.md|things\.json|stages\/\d{2}\.(json|map\.txt)|sprites\/[a-z0-9-]+\.txt|[a-z0-9-]+\.(png|webp))$/;
 
 export type Review = {
   number: number; title: string; author: string; url: string; state: 'open' | 'merged' | 'closed';
@@ -92,7 +92,7 @@ export async function loadReview(number: number): Promise<Review> {
 }
 
 const DORMS = 'https://dorms.school';
-const TEXT_OK = /^(pack\.json|DESIGN\.md|stages\/\d{2}\.(json|map\.txt)|sprites\/[a-z0-9-]{1,40}\.txt)$/;
+const TEXT_OK = /^(pack\.json|DESIGN\.md|things\.json|stages\/\d{2}\.(json|map\.txt)|sprites\/[a-z0-9-]{1,40}\.txt)$/;
 /** 도름스로 들어온 요청을 읽는다. 주소의 긴 번호가 곧 열람 열쇠다. 받은 글은 모두 보낸 사람이 쓴 것이라 자료로만 다룬다. */
 export async function loadDormsReview(id: string): Promise<Review> {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) throw new Error('요청 주소를 확인해 주세요.');

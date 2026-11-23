@@ -22,7 +22,7 @@ const ORIGIN = (() => {
 })();
 const KEY_DIR = join(win ? (process.env.APPDATA || join(homedir(), 'AppData', 'Roaming')) : join(homedir(), '.config'), 'dorms-world');
 const KEY_FILE = join(KEY_DIR, ORIGIN === 'https://dorms.school' ? 'key' : 'key-test');
-const FILE_OK = /^(pack\.json|DESIGN\.md|stages\/\d{2}\.(json|map\.txt)|sprites\/[a-z0-9-]{1,40}\.txt)$/;
+const FILE_OK = /^(pack\.json|DESIGN\.md|things\.json|stages\/\d{2}\.(json|map\.txt)|sprites\/[a-z0-9-]{1,40}\.txt)$/;
 const MAX_FILE = 100_000, MAX_TOTAL = 300_000, MAX_COUNT = 120;
 const WORDS = { submitted: '운영자가 살펴보기를 기다리는 중', approved: '승인됨, 곧 실려요', publishing: '싣는 중', published: '실렸어요', rejected: '돌려보냄', failed: '싣다가 막힘(운영자가 보고 있어요)' };
 

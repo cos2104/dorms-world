@@ -71,6 +71,7 @@ class Run {
       const n = w.players.filter(p => !exclude.includes(p.i) && !p.inDoor && p.on && (!this.jobs.has(p.i) || this.jobs.get(p.i)!.kind === 'hold') && overlap({ x: p.x, y: p.y + 2, w: p.w, h: p.h }, btn)).length;
       if (n >= w.needs[bi]) for (const ch of btn.opens) act.add(ch);
     });
+    st.things.goals.forEach((g, gi) => { if (w.h.counts[gi] >= g.need) for (const ch of g.opens) act.add(ch); });
     return act;
   }
   nav(exclude: number[] = []) { return navOf(this.w.stage, this.sustained(exclude), this.w.crates); }
@@ -622,6 +623,12 @@ export function playStage(stage: Stage, people: number, opts: PlayOpts = {}): St
   }
   const s = best.s;
   const where = whereOf(s);
+  // 새 물건(things.json)은 봇이 아직 다루지 못한다: 놓는 곳을 채우거나, 튕기기·움직이는 발판·닿으면 처음 자리로 가는 길은 사람이 깨 본다
+  const th = s.w.stage.things;
+  if (th.kinds.some(k => k.body !== 'push')) {
+    const open = th.goals.filter((g, gi) => s.w.h.counts[gi] < g.need).map(g => g.label || `'${g.ch}'`);
+    return finish('unknown', `${people}명: ${where}. 새 물건이 있는 길(${th.kinds.filter(k => k.body !== 'push').map(k => k.name).join(', ')}${open.length ? `, 놓는 곳 ${open.join(', ')}` : ''})은 봇이 아직 다루지 못해요. 이 인원은 사람이 직접 깨 보세요.`, s);
+  }
   if (needsTower(s)) return finish('unknown', `${people}명: ${where}. 친구 둘 이상을 쌓아야 닿는 자리가 있는데, 봇은 친구 한 명만 딛을 수 있어요. 이 인원은 사람이 직접 깨 보세요.`, s);
   const did = s.did.length ? ` 봇이 한 일: ${s.did.join(', ')}.` : '';
   const why = best.why.length ? ` 막힌 곳: ${best.why.slice(0, 4).join(' / ')}.` : '';

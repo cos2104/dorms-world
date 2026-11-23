@@ -3,6 +3,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseStage, type StageJson } from '../platform/stage';
 import { parseSprite, type Sprite } from '../platform/sprite';
+import { parseKinds, type ThingKind } from '../platform/things';
 
 /** 팩의 JSON 을 읽는다. 윈도우 메모장이 붙이는 BOM 을 걷는다(판과 보내기 명령도 같은 일을 한다). */
 export const readJson = (path: string) => JSON.parse(readFileSync(path, 'utf8').replace(/^\uFEFF/, ''));
@@ -14,8 +15,15 @@ export function readSprites(dir: string): Record<string, Sprite> {
   return out;
 }
 
+/** 새 물건(things.json, 있을 때만). */
+export function readKinds(dir: string, sprites = readSprites(dir)): Record<string, ThingKind> {
+  const f = join(dir, 'things.json');
+  return existsSync(f) && lstatSync(f).isFile() ? parseKinds(readJson(f), sprites) : {};
+}
+
 export function readStage(dir: string, file: string) {
   if (!/^\d{2}$/.test(file)) throw new Error(`스테이지 파일 이름은 두 자리 숫자여야 해요("${file}")`);
   const def: StageJson = readJson(join(dir, 'stages', `${file}.json`));
-  return { def, stage: parseStage(readFileSync(join(dir, 'stages', `${file}.map.txt`), 'utf8'), def, readSprites(dir)) };
+  const sprites = readSprites(dir);
+  return { def, stage: parseStage(readFileSync(join(dir, 'stages', `${file}.map.txt`), 'utf8'), def, sprites, readKinds(dir, sprites)) };
 }

@@ -5,6 +5,7 @@
 import { emptyGraphStage, type GraphStage } from './graph/model';
 import { GRAPH_KEYS, finishGraph, parseGraphLegend, type GraphLegend } from './graph/legend';
 import type { Sprite } from './sprite';
+import { NO_THINGS, THING_KEYS, finishThings, parseThingLegend, thingOpens, type ThingKind, type ThingStage } from './things';
 
 export const T = 30;
 
@@ -17,13 +18,15 @@ export type LegendEntry =
   | { type: 'crate'; need?: Need }
   | { type: 'sign'; texts?: string[] }
   | { type: 'deco'; sprite?: string }
+  | { type: 'thing'; thing?: string }
+  | { type: 'goal'; accepts?: string[]; need?: number | 'all'; opens?: string[]; label?: string; sprite?: string }
   | GraphLegend;
 
 export type StageJson = { legend?: Record<string, LegendEntry>; hint?: string };
 
 export type Button = Rect & { ch: string; need: Need; opens: string[] };
 export type Bridge = { ch: string; mode: 'appear' | 'vanish'; cells: [number, number][] };
-export type CrateDef = Rect & { ch: string; need: Need };
+export type CrateDef = Rect & { ch: string; need: Need; skin?: ThingKind };   // skin: things.json 의 밀리는 물건(그림·이름)
 export type Sign = { x: number; y: number; texts: string[] };
 /** 꾸밈 그림. 부딪히지 않고 도름이 뒤에 그려진다. x, y 는 그림의 왼쪽 위. */
 export type Deco = { x: number; y: number; sprite: Sprite };
@@ -40,6 +43,7 @@ export type Stage = {
   signs: Sign[];
   decos: Deco[];
   graph: GraphStage;
+  things: ThingStage;   // things.json 으로 만든 새 물건과 놓는 곳
   hint: string;
 };
 
@@ -79,7 +83,7 @@ const pickSprite = (sprites: Record<string, Sprite>, name: unknown): Sprite | un
   (typeof name === 'string' && /^[a-z0-9-]{1,40}$/.test(name) && Object.hasOwn(sprites, name) ? sprites[name] : undefined);
 
 /** sprites: 그 팩의 글자 그림(이름 → 그림). 스테이지가 그림을 쓰면 여기서 찾는다. */
-export function parseStage(mapText: string, json: StageJson = {}, sprites: Record<string, Sprite> = {}): Stage {
+export function parseStage(mapText: string, json: StageJson = {}, sprites: Record<string, Sprite> = {}, kinds: Record<string, ThingKind> = {}): Stage {
   const lines = mapText.replace(/^\uFEFF/, '').replace(/\r/g, '').split('\n').filter((l, i, a) => l.length > 0 || (i > 0 && i < a.length - 1));
   while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
   if (!lines.length) throw new Error('지도가 비어 있어요.');
@@ -93,7 +97,7 @@ export function parseStage(mapText: string, json: StageJson = {}, sprites: Recor
   if (json.hint != null && (typeof json.hint !== 'string' || json.hint.length > 60)) throw new Error('hint 는 60자까지의 한 줄이에요.');
   const legend = json.legend ?? {};
   if (legend === null || typeof legend !== 'object' || Array.isArray(legend)) throw new Error('legend 는 { "a": { "type": ... } } 모양이어야 해요.');
-  const KEYS: Record<string, string[]> = { button: ['type', 'need', 'opens'], bridge: ['type', 'mode'], crate: ['type', 'need'], sign: ['type', 'texts'], deco: ['type', 'sprite'], ...GRAPH_KEYS };
+  const KEYS: Record<string, string[]> = { button: ['type', 'need', 'opens'], bridge: ['type', 'mode'], crate: ['type', 'need'], sign: ['type', 'texts'], deco: ['type', 'sprite'], ...GRAPH_KEYS, ...THING_KEYS };
   const TYPES = Object.keys(KEYS).join(', ');
   for (const [ch, def] of Object.entries(legend) as [string, unknown][]) {
     if (def === null || typeof def !== 'object' || Array.isArray(def)) throw new Error(`legend 의 "${ch}" 는 { "type": "button" } 같은 모양이어야 해요.`);
@@ -131,6 +135,7 @@ export function parseStage(mapText: string, json: StageJson = {}, sprites: Recor
   const buttons: Button[] = [], bridges: Bridge[] = [], crates: CrateDef[] = [], signs: Sign[] = [];
   const decos: Deco[] = [];
   const graph = emptyGraphStage();
+  const things: ThingStage = { kinds: [], items: [], goals: [] };
   for (const [ch, def] of Object.entries(legend)) {
     const cells = found.get(ch);
     if (!cells) throw new Error(`legend 의 "${ch}" 가 지도에 없어요.`);
@@ -172,6 +177,8 @@ export function parseStage(mapText: string, json: StageJson = {}, sprites: Recor
       // 글자를 놓은 칸의 왼쪽 아래에 그림의 왼쪽 아래를 맞춘다(한 점이 2px)
       for (const [c, r] of cells) decos.push({ x: c * T, y: (r + 1) * T - sp.h * 2, sprite: sp });
       if (decos.length > 60) throw new Error('꾸밈 그림은 한 스테이지에 60개까지예요.');
+    } else if (def.type === 'thing' || def.type === 'goal') {
+      parseThingLegend(ch, def as Record<string, unknown>, cells, at, kinds, sprites, groups, things, crates);
     } else if (def.type in GRAPH_KEYS) {
       parseGraphLegend(graph, ch, def as GraphLegend, cells, at, groups, legend);
     } else {
@@ -180,7 +187,9 @@ export function parseStage(mapText: string, json: StageJson = {}, sprites: Recor
   }
   finishGraph(graph, legend);
   const graphOpens = new Set([...graph.goals.flatMap(x => x.opens), ...graph.slots.flatMap(x => x.opens), ...(graph.sled?.opens ?? [])]);
+  finishThings(things, ch => legend[ch]?.type === 'bridge');
+  for (const ch of thingOpens(things)) graphOpens.add(ch);
   for (const b of bridges) if (!buttons.some(x => x.opens.includes(b.ch)) && !graphOpens.has(b.ch)) throw new Error(`다리 "${b.ch}" 를 여는 단추나 장치가 없어요.`);
   const hint = json.hint ?? '';
-  return { cols, rows, solid, spawn, key, door, buttons, bridges, crates, signs, decos, graph, hint };
+  return { cols, rows, solid, spawn, key, door, buttons, bridges, crates, signs, decos, graph, things: things.kinds.length ? things : NO_THINGS, hint };
 }

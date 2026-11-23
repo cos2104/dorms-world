@@ -4,6 +4,7 @@
  */
 import { parseStage, type Stage, type StageJson } from './stage';
 import { parseSprite, type Sprite } from './sprite';
+import { parseKinds } from './things';
 
 export type PackJson = {
   id: string; name: string; tagline: string; family: string; schoolLevels: string[];
@@ -19,6 +20,7 @@ export type Pack = PackJson & { avatarUrl: string | null; stageData: Stage[] };
 const metas = import.meta.glob<PackJson>('../packs/*/*/pack.json', { eager: true, import: 'default' });
 const maps = import.meta.glob<string>('../packs/*/*/stages/*.map.txt', { eager: true, query: '?raw', import: 'default' });
 const defs = import.meta.glob<StageJson>('../packs/*/*/stages/*.json', { eager: true, import: 'default' });
+const kindFiles = import.meta.glob<string>('../packs/*/*/things.json', { eager: true, query: '?raw', import: 'default' });
 const arts = import.meta.glob<string>('../packs/*/*/sprites/*.txt', { eager: true, query: '?raw', import: 'default' });
 const pics = import.meta.glob<string>('../packs/*/*/*.{png,webp}', { eager: true, query: '?url', import: 'default' });
 
@@ -30,11 +32,16 @@ export function buildPack(meta: PackJson, file: (path: string) => string | undef
   if (!meta || typeof meta !== 'object' || !Array.isArray(meta.stages) || !meta.stages.length || meta.stages.length > 30) throw new Error('pack.json 의 stages 를 읽을 수 없어요(1~30개).');
   const sprites: Record<string, Sprite> = {};
   for (const name of spriteNames.slice(0, 40)) sprites[name] = parseSprite(file(`sprites/${name}.txt`) ?? '', name);
+  // 새 물건(things.json, 있을 때만). 모든 스테이지가 같은 물건 목록을 쓴다
+  const kindText = file('things.json');
+  let kindJson: unknown = null;
+  if (kindText != null) { try { kindJson = JSON.parse(kindText.replace(/^\uFEFF/, '')); } catch { throw new Error('things.json 을 읽을 수 없어요(JSON 형식 확인).'); } }
+  const kinds = parseKinds(kindJson, sprites);
   const stageData = meta.stages.map(s => {
     if (!/^\d{2}$/.test(String(s.file))) throw new Error('스테이지 파일 이름은 "01" 같은 두 자리 숫자여야 해요.');
     let def: StageJson = {};
     try { def = JSON.parse((file(`stages/${s.file}.json`) ?? '{}').replace(/^\uFEFF/, '')); } catch { throw new Error(`stages/${s.file}.json 을 읽을 수 없어요(JSON 형식 확인).`); }
-    return parseStage(file(`stages/${s.file}.map.txt`) ?? '', def, sprites);
+    return parseStage(file(`stages/${s.file}.map.txt`) ?? '', def, sprites, kinds);
   });
   const players = { min: Math.max(1, Math.floor(Number(meta.players?.min)) || 2), max: Math.min(30, Math.floor(Number(meta.players?.max)) || 30) };
   if (players.min > players.max) players.min = players.max = Math.max(1, Math.min(30, players.max));   // 거꾸로 적힌 인원으로 0명 판이 열리지 않게
@@ -53,7 +60,7 @@ export const PACKS: Pack[] = Object.entries(metas).flatMap(([path, meta]) => {
   const dir = path.replace(/pack\.json$/, '');
   try {
     const names = Object.keys(arts).filter(p => p.startsWith(`${dir}sprites/`)).map(p => p.slice(`${dir}sprites/`.length).replace(/\.txt$/, ''));
-    const file = (rel: string) => (rel.startsWith('sprites/') ? arts[dir + rel] : rel.endsWith('.map.txt') ? maps[dir + rel] : rel.endsWith('.json') ? JSON.stringify(defs[dir + rel] ?? {}) : undefined);
+    const file = (rel: string) => (rel === 'things.json' ? kindFiles[dir + rel] : rel.startsWith('sprites/') ? arts[dir + rel] : rel.endsWith('.map.txt') ? maps[dir + rel] : rel.endsWith('.json') ? JSON.stringify(defs[dir + rel] ?? {}) : undefined);
     return [buildPack(meta, file, meta.creator.avatar ? pics[`${dir}${meta.creator.avatar}`] ?? null : null, names)];
   } catch (err) {
     console.warn(`팩을 읽지 못해 뺐어요: ${path}`, err);

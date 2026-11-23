@@ -13,7 +13,7 @@ const SECRET = process.env.WORLD_PUBLISH_SECRET || '';
 const REPO = process.env.GITHUB_REPOSITORY || 'shinnanchanguk/dorms-world';
 const AUTHOR = process.env.PUBLISH_AUTHOR || '';   // "이름 <메일>". 배포가 막히지 않게 저장소 주인 이름으로 커밋하고, 만든 선생님은 커밋 글에 적는다
 const ID_OK = /^[a-z0-9-]{1,40}\/[a-z0-9-]{1,40}$/, UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const FILE_OK = /^(pack\.json|DESIGN\.md|stages\/\d{2}\.(json|map\.txt)|sprites\/[a-z0-9-]{1,40}\.txt)$/;
+const FILE_OK = /^(pack\.json|DESIGN\.md|things\.json|stages\/\d{2}\.(json|map\.txt)|sprites\/[a-z0-9-]{1,40}\.txt)$/;
 const MAX_FILE = 100_000, MAX_TOTAL = 300_000, MAX_COUNT = 120;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }).trim();

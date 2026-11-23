@@ -8,9 +8,11 @@ import { colorFor } from './identity';
 import { MAX_SEATS } from './room-rules';
 import { NO_PAD, setPlayerCount, type Pad, type World } from './sim';
 import { T } from './stage';
+import { VARS, num as clampNum } from './things';
 
 /** 방장이 요약을 보내는 간격(물리 걸음 수). 60 / 3 = 초당 20번. */
 export const SNAP_EVERY = 3;
+const H = 4 + VARS;   // 새 물건 하나가 차지하는 칸 수
 const P = 9, C = 4;   // 도름이·상자 하나가 차지하는 칸 수
 
 export type Wire = {
@@ -24,6 +26,7 @@ export type Wire = {
   c: number[];                            // 상자마다 4칸: x, y, 떨어지는 속도, 미는 사람 수
   p: number[];                            // 도름이마다 9칸: 자리 번호, x, y, vx, vy, 상태, 걷기, 멈춤 시간, 그래프 위
   g: GWire;                               // 그래프 공장 장치
+  h?: number[];                           // 새 물건: 놓는 곳마다 센 수, 그리고 물건마다 8칸(0 제자리 1 없어짐 2+n n번째 도름이가 듦, x, y, 떨어지는 속도, 움직임의 수 4칸)
 };
 
 const r1 = (v: number) => Math.round(v * 10) / 10, r2 = (v: number) => Math.round(v * 100) / 100;
@@ -44,6 +47,7 @@ export function toWire(w: World, seats: readonly number[], run: number, n: numbe
     c: w.crates.flatMap(c => [r1(c.x), r1(c.y), Math.round(c.vy), c.pushers]),
     p,
     g: graphToWire(w.g),
+    h: [...w.h.counts, ...w.h.items.flatMap(it => [it.at === 2 ? 2 + it.holder : it.at, r1(it.x), r1(it.y), Math.round(it.vy), ...it.v.map(r2)])],
   };
 }
 
@@ -61,6 +65,7 @@ export function readWire(x: unknown): Wire | null {
   for (let i = 0; i < o.p.length; i += P) if (!whole(o.p[i], 0, MAX_SEATS - 1) || !whole(o.p[i + 5], 0, 255) || !whole(o.p[i + 8], 0, 1)) return null;
   const g = readGWire(o.g);
   if (!g) return null;
+  if (o.h != null && !nums(o.h, 12 + 80 * H)) return null;
   return o as unknown as Wire;
 }
 
@@ -73,7 +78,8 @@ export const wireSeats = (wire: Wire) => { const out: number[] = []; for (let i 
  */
 export function applyWire(w: World, wire: Wire): boolean {
   const st = w.stage;
-  if (wire.b.length !== st.buttons.length || wire.c.length !== st.crates.length * C) return false;
+  const th = st.things, hw = wire.h ?? [];
+  if (wire.b.length !== st.buttons.length || wire.c.length !== st.crates.length * C || hw.length !== th.goals.length + th.items.length * H) return false;
   const seats = wireSeats(wire);
   if (w.players.length !== seats.length || w.players.some((q, i) => q.color !== colorFor(seats[i]))) setPlayerCount(w, seats.map(colorFor));
   const sw = st.cols * T, sh = st.rows * T, inX = (v: number) => Math.max(-T, Math.min(sw + T, v)), inY = (v: number) => Math.max(-4 * T, Math.min(sh + 4 * T, v));
@@ -95,6 +101,13 @@ export function applyWire(w: World, wire: Wire): boolean {
     q.stun = Math.max(0, Math.min(3, wire.p[o + 7])); q.onCurve = !!wire.p[o + 8]; q.jumpNew = false;
   });
   if (!applyGraphWire(st.graph, w.g, wire.g, seats.length, sw, sh)) return false;
+  th.goals.forEach((g, i) => { w.h.counts[i] = Math.max(0, Math.min(g.need + 80, hw[i] | 0)); });
+  w.h.items.forEach((it, i) => {
+    const o = th.goals.length + i * H, v = hw[o] | 0;
+    it.at = v >= 2 && v - 2 < seats.length ? 2 : v === 1 ? 1 : 0; it.holder = it.at === 2 ? v - 2 : -1;
+    it.x = inX(hw[o + 1]); it.y = inY(hw[o + 2]); it.vy = fast(hw[o + 3]);
+    for (let k = 0; k < VARS; k++) it.v[k] = clampNum(hw[o + 4 + k]);
+  });
   return true;
 }
 /** 속도는 물리가 내는 범위 안으로 자른다(방장이 바뀌어 이 세계를 이어 굴릴 때 터무니없는 속도가 남지 않게). */

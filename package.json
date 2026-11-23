@@ -14,7 +14,8 @@
     "submit:code": "node scripts/submit-code.mjs",
     "units": "node scripts/units.mjs",
     "check:security": "node scripts/security-check.mjs",
-    "play:bots": "vite-node scripts/bots/cli.ts --"
+    "play:bots": "vite-node scripts/bots/cli.ts --",
+    "sprite:image": "node scripts/sprite-from-image.mjs"
   },
   "devDependencies": {
     "playwright": "^1.58.2",

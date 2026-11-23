@@ -45,8 +45,8 @@ for (const fam of entries(root)) {
           plainFile(s, `${where}/sprites`);
         }
       } else if (e.name === 'pack.json') { hasMeta = plainFile(e, where); }
-      else if (e.name === 'DESIGN.md' || PIC.test(e.name)) plainFile(e, where);
-      else problems.push(`${where}/${e.name}: 팩에는 pack.json, DESIGN.md, stages 폴더, sprites 폴더, 프로필 그림(png·webp)만 둘 수 있어요.`);
+      else if (e.name === 'DESIGN.md' || e.name === 'things.json' || PIC.test(e.name)) plainFile(e, where);
+      else problems.push(`${where}/${e.name}: 팩에는 pack.json, DESIGN.md, things.json, stages 폴더, sprites 폴더, 프로필 그림(png·webp)만 둘 수 있어요.`);
     }
     if (!hasMeta) { problems.push(`${where}: pack.json 이 없어요.`); continue; }
     // pack.json 이 가리키는 파일 이름도 팩 폴더 밖으로 나가지 못하게 모양을 본다(글자로만 읽는다).

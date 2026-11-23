@@ -1,0 +1,14 @@
+{
+  "legend": {
+    "s": { "type": "thing", "thing": "seed" },
+    "g": { "type": "goal", "accepts": ["seed"], "opens": ["x"], "label": "화분", "sprite": "pot" },
+    "x": { "type": "bridge" },
+    "p": { "type": "thing", "thing": "spring" },
+    "t": { "type": "thing", "thing": "thorn" },
+    "c": { "type": "thing", "thing": "cloud" },
+    "o": { "type": "thing", "thing": "star" },
+    "h": { "type": "goal", "accepts": ["star"], "opens": ["y"], "label": "별" },
+    "y": { "type": "bridge", "mode": "vanish" }
+  },
+  "hint": "씨앗은 확인으로 들어 화분에 놓고, 별은 구름을 타고 모아요."
+}

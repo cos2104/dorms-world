@@ -1,0 +1,207 @@
+/**
+ * 새 물건의 움직임(platform/things.ts 의 자료를 판의 물리에 잇는다).
+ * sim.ts 의 걸음(tick) 안에서 세 번 불린다: 걸음 맨 앞(움직이는 발판에 탄 사람 옮기기), 단추 계산 앞(닿기·들고 놓기·떨어지기),
+ * 다리 계산(놓는 곳이 연 다리).
+ */
+import { G, crateAt, hitsBridge, hitsTiles, overlap, respawn, type Player, type World } from './sim';
+import { T, type Rect } from './stage';
+import { VARS, heldBy, itemRect, itemShown, moveOffset, num, thingBlocks, type ThingAction } from './things';
+import type { BehaviorCtx } from './behavior';
+
+const shown = (w: World, i: number) => itemShown(w.stage.things, w.h, i, w.active);
+const rectAt = (w: World, i: number, t = w.t) => itemRect(w.stage.things, w.h, i, t);
+const kindOf = (w: World, i: number) => w.stage.things.kinds[w.stage.things.items[i].kind];
+
+/** 사람·상자가 단단한 물건에 막히는가(sim.ts 의 막힘 검사에 더해진다). */
+export const thingSolidAt = (w: World, r: Rect, self?: Rect, fromBottom?: number) =>
+  w.stage.things.items.length > 0 && thingBlocks(w.stage.things, w.h, w.active, w.t, r, self, fromBottom);
+
+/** 걸음 맨 앞: 움직이는 단단한 물건·발판 위에 선 사람(과 그 위에 선 사람)을 물건과 함께 옮긴다. */
+export function thingsBefore(w: World, dt: number) {
+  const s = w.stage.things;
+  for (let i = 0; i < s.items.length; i++) {
+    const k = kindOf(w, i);
+    if (!k.move || (k.body !== 'solid' && k.body !== 'ledge') || !shown(w, i)) continue;
+    const a = rectAt(w, i, w.t - dt), b = rectAt(w, i);
+    const dx = b.x - a.x, dy = b.y - a.y;
+    if (!dx && !dy) continue;
+    for (const p of w.players) {
+      if (p.inDoor || !p.on || p.x + p.w <= a.x || p.x >= a.x + a.w || Math.abs(p.y + p.h - a.y) > 2) continue;
+      const m = { x: p.x + dx, y: b.y - p.h, w: p.w, h: p.h };
+      if (!hitsTiles(w, m) && !hitsBridge(w, m)) { p.x = m.x; p.y = m.y; }
+    }
+    // 옆으로 미는 쪽에 선 사람은 밀려난다(단단한 물건 속에 묻히지 않게). 발판은 옆으로 지나가므로 밀지 않는다
+    if (dx && k.body === 'solid') for (const p of w.players) {
+      if (p.inDoor || !overlap(p, b) || overlap(p, a)) continue;
+      const m = { x: dx > 0 ? b.x + b.w : b.x - p.w, y: p.y, w: p.w, h: p.h };
+      if (!hitsTiles(w, m) && !hitsBridge(w, m)) p.x = m.x;
+    }
+  }
+}
+
+/** 확인을 누르면 일어날 일. 화면의 안내 글과 실제 동작이 이 판단 하나를 쓴다. */
+export function thingActionAt(w: World, p: Player): ThingAction | null {
+  const s = w.stage.things;
+  if (!s.items.length || p.inDoor) return null;
+  const held = heldBy(w.h, p.i);
+  if (held >= 0) {
+    const ki = s.items[held].kind;
+    for (let g = 0; g < s.goals.length; g++) {
+      if (!overlap(p, s.goals[g])) continue;
+      if (!s.goals[g].accepts.includes(ki)) return { do: 'no', why: '여기에는 놓을 수 없어요' };
+      return { do: 'put', item: held, goal: g };
+    }
+    return { do: 'drop', item: held };
+  }
+  const reach = { x: p.x - 8, y: p.y - 6, w: p.w + 16, h: p.h + 10 };
+  // 선생님이 더한 움직임 가운데 확인으로 쓰는 것(가장 가까운 것 하나)
+  let use = -1, useNear = Infinity;
+  for (let i = 0; i < s.items.length; i++) {
+    const b = kindOf(w, i).behavior;
+    if (!b?.use || w.h.items[i].at !== 0 || !shown(w, i)) continue;
+    const r = rectAt(w, i);
+    if (!overlap(reach, r)) continue;
+    const d = Math.abs(r.x + r.w / 2 - p.x - p.w / 2);
+    if (d < useNear) { useNear = d; use = i; }
+  }
+  if (use >= 0) {
+    let text = '';
+    try { text = String(kindOf(w, use).behavior!.useText?.(ctxFor(w, use)) ?? '').slice(0, 20); } catch { text = ''; }
+    return { do: 'use', item: use, text: text || `확인: ${kindOf(w, use).name}` };
+  }
+  let best = -1, near = Infinity;
+  for (let i = 0; i < s.items.length; i++) {
+    if (kindOf(w, i).body !== 'carry' || w.h.items[i].at !== 0 || !shown(w, i)) continue;
+    const r = rectAt(w, i);
+    if (!overlap(reach, r)) continue;
+    const d = Math.abs(r.x + r.w / 2 - p.x - p.w / 2);
+    if (d < near) { near = d; best = i; }
+  }
+  return best >= 0 ? { do: 'pick', item: best } : null;
+}
+
+/** 확인 안내 글(내 화면에만). */
+export function thingActionText(w: World, a: ThingAction) {
+  if (a.do === 'no') return a.why;
+  if (a.do === 'use') return a.text;
+  const k = kindOf(w, a.item);
+  if (a.do === 'pick') return `확인: ${k.name} 들기`;
+  if (a.do === 'put') { const g = w.stage.things.goals[a.goal]; return g.label ? `확인: ${g.label}에 놓기` : '확인: 여기에 놓기'; }
+  return '확인: 내려놓기';
+}
+
+const home = (w: World, i: number) => { const it = w.stage.things.items[i], st = w.h.items[i]; st.x = it.x; st.y = it.y; st.vy = 0; st.at = 0; st.holder = -1; };
+
+/** 든 물건을 처음 자리로 돌린다(떨어짐·문 들어감·방에서 나감). */
+export function thingsRelease(w: World, pi: number) {
+  const i = heldBy(w.h, pi);
+  if (i >= 0) home(w, i);
+}
+
+/** 가운데 사람이 나갔다: 그 사람이 든 것은 돌려놓고, 뒤 번호를 하나씩 당긴다. */
+export function thingsRemove(w: World, pi: number) {
+  thingsRelease(w, pi);
+  for (const st of w.h.items) if (st.at === 2 && st.holder > pi) st.holder--;
+}
+
+/** 움직임에 건네는 손잡이. 판의 상태는 이것으로만 바꾼다(움직임이 판을 망가뜨리지 않게). */
+export function ctxFor(w: World, i: number): BehaviorCtx {
+  const st = w.h.items[i];
+  return {
+    vars: st.v, rect: rectAt(w, i), t: w.t, players: w.players.length,
+    isOn: ch => w.active.has(ch),
+    respawn: q => { const p = w.players[q.i]; if (p) respawn(w, p); },
+    launch: (q, cells) => { const p = w.players[q.i]; if (!p) return; p.vy = -Math.sqrt(2 * G * Math.max(2, Math.min(10, num(cells))) * T); p.on = false; p.coyote = 0; },
+    remove: () => { st.at = 1; st.holder = -1; },
+  };
+}
+const tidy = (v: number[]) => { v.length = VARS; for (let k = 0; k < VARS; k++) v[k] = num(v[k]); };
+/** 움직임을 부른다. 움직임이 오류를 내도 판은 멈추지 않는다(그 걸음의 일만 건너뛴다). */
+function call<T>(w: World, i: number, f: (ctx: BehaviorCtx) => T): T | undefined {
+  try { return f(ctxFor(w, i)); } catch (err) { if (!broken.has(i)) { broken.add(i); console.warn('새 움직임에서 오류가 났어요', err); } return undefined; } finally { tidy(w.h.items[i].v); }
+}
+const broken = new Set<number>();
+
+const bump = (w: World, ki: number) => w.stage.things.goals.forEach((g, gi) => { if (g.accepts.includes(ki)) w.h.counts[gi]++; });
+
+/** 단추 계산 앞: 닿기(모으기·처음 자리로·튕기기), 들고 놓기, 내려놓은 물건 떨어지기. */
+export function thingTick(w: World, dt: number) {
+  const s = w.stage.things;
+  if (!s.items.length) return;
+  // 들고 놓기(확인을 새로 누른 사람). 쓴 누름은 지워서 같은 누름으로 다른 장치가 또 움직이지 않게 한다
+  for (const p of w.players) {
+    if (!p.aNew || p.inDoor) continue;
+    const act = thingActionAt(w, p);
+    if (!act) continue;
+    p.aNew = false;
+    if (act.do === 'pick') { const st = w.h.items[act.item]; st.at = 2; st.holder = p.i; st.vy = 0; }
+    else if (act.do === 'use') call(w, act.item, ctx => kindOf(w, act.item).behavior!.use!(ctx, w.players[p.i]));
+    else if (act.do === 'put') { const st = w.h.items[act.item]; st.at = 1; st.holder = -1; w.h.counts[act.goal]++; }
+    else if (act.do === 'drop') {
+      const st = w.h.items[act.item], k = kindOf(w, act.item);
+      st.at = 0; st.holder = -1; st.vy = 0;
+      st.x = Math.max(0, Math.min(w.stage.cols * T - k.w, p.x + p.w / 2 - k.w / 2));
+      st.y = p.y + p.h - k.h;
+    }
+  }
+  // 든 사람이 문에 들어가면 처음 자리로
+  for (const p of w.players) if (p.inDoor) thingsRelease(w, p.i);
+
+  for (let i = 0; i < s.items.length; i++) {
+    const k = kindOf(w, i), st = w.h.items[i];
+    if (st.at === 2) {   // 머리 위로 든다
+      const p = w.players[st.holder];
+      if (!p) { home(w, i); continue; }
+      st.x = p.x + p.w / 2 - k.w / 2; st.y = p.y - k.h - 3;
+      continue;
+    }
+    if (st.at === 1 || !shown(w, i)) continue;
+    if (k.body === 'carry') {   // 내려놓은 물건은 떨어진다(땅·다리·상자·단단한 물건 위에 선다)
+      const r = rectAt(w, i);
+      const under = (q: Rect) => hitsTiles(w, q) || hitsBridge(w, q) || crateAt(w, q) >= 0 || thingSolidAt(w, q, undefined, r.y + r.h);
+      if (!under({ x: r.x + 1, y: r.y + r.h, w: r.w - 2, h: 1 })) {
+        st.vy = Math.min(st.vy + G * dt, 600);
+        let ny = st.y + st.vy * dt;
+        for (let y = st.y; y < ny; y += 1) if (under({ x: r.x + 1, y: y + 1, w: r.w - 2, h: r.h })) { ny = Math.ceil(y + r.h - 1e-6) - r.h; st.vy = 0; break; }
+        st.y = ny;
+        if (st.y > w.stage.rows * T + 60) home(w, i);
+      } else st.vy = 0;
+      continue;
+    }
+    if (k.behavior?.tick) {
+      const r = rectAt(w, i);
+      const touching = w.players.filter(p => !p.inDoor && (overlap(p, r) || (p.on && p.x + p.w > r.x && p.x < r.x + r.w && Math.abs(p.y + p.h - r.y) < 2)));
+      call(w, i, ctx => k.behavior!.tick!(ctx, dt, touching));
+    }
+    if (k.touch === 'none') continue;
+    const r = rectAt(w, i);
+    for (const p of w.players) {
+      if (p.inDoor) continue;
+      if (k.touch === 'collect') {
+        if (overlap(p, r)) { st.at = 1; bump(w, s.items[i].kind); break; }
+      } else if (k.touch === 'hurt') {
+        if (overlap(p, { x: r.x + 3, y: r.y + 3, w: r.w - 6, h: r.h - 3 })) respawn(w, p);
+      } else {   // 튕기기: 단단한 물건·발판은 윗면을 딛었을 때, 지나가는 물건은 닿았을 때(내려오는 중)
+        const top = k.body === 'pass' ? overlap(p, r) && p.vy >= 0 : p.on && p.x + p.w > r.x && p.x < r.x + r.w && Math.abs(p.y + p.h - r.y) < 2;
+        if (top) { p.vy = -Math.sqrt(2 * G * k.power * T); p.on = false; p.coyote = 0; }
+      }
+    }
+  }
+}
+
+/** 놓는 곳이 다 차서 켜는 다리 글자(꺼지지 않는다). */
+export function thingActive(w: World, add: (ch: string) => void) {
+  w.stage.things.goals.forEach((g, gi) => { if (w.h.counts[gi] >= g.need) for (const ch of g.opens) add(ch); });
+  w.stage.things.items.forEach((it, i) => { const k = w.stage.things.kinds[it.kind]; if (k.opens.length && w.h.items[i].at !== 1 && w.h.items[i].v[0]) for (const ch of k.opens) add(ch); });
+}
+
+/** 시작 자리를 고를 때 피할 자리(물건과 놓는 곳). */
+export function thingAvoid(st: World['stage'], me: Rect) {
+  const s = st.things;
+  for (const it of s.items) { const k = s.kinds[it.kind]; if (overlap(me, { x: it.x - 3, y: it.y - 3, w: k.w + 6, h: k.h + 6 })) return true; }
+  for (const g of s.goals) if (overlap(me, g)) return true;
+  return false;
+}
+
+/** 그리기용: 움직이는 물건의 지금 어긋남(시간으로만 정해진다). */
+export const thingOffset = moveOffset;

@@ -1,0 +1,7 @@
+{
+  "seed": { "name": "씨앗", "sprite": "seed", "size": 3, "body": "carry" },
+  "spring": { "name": "용수철", "sprite": "spring", "touch": "bounce", "power": 7 },
+  "thorn": { "name": "가시", "sprite": "thorn", "touch": "hurt" },
+  "star": { "name": "별", "sprite": "star", "size": 3, "touch": "collect" },
+  "cloud": { "name": "구름", "sprite": "cloud", "size": 3, "body": "ledge", "move": { "dx": 3, "speed": 1.5 } }
+}

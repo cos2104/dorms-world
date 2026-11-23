@@ -3,6 +3,8 @@
  * 시안(design-lab/game.js)에서 형이 직접 해 본 움직임(속도·점프·서로 비켜 가기·머리 위 올라타기)을 옮겼다.
  */
 import { T, resolveNeed, type Rect, type Stage } from './stage';
+import { createThingWorld, type ThingWorld } from './things';
+import { thingActive, thingAvoid, thingSolidAt, thingTick, thingsBefore, thingsRelease, thingsRemove } from './thing-sim';
 import { createGraph, graphActionAt, graphTick, holdingPiece, riderSpot, surfaceBelow, type GAction, type GraphWorld, type Host } from './graph/model';
 
 export const G = 1900, SPEED = 175, JUMP = Math.sqrt(2 * G * 108), CRATE_SPEED = 55;
@@ -53,6 +55,7 @@ export type World = {
   active: Set<string>;             // 켜진 다리 글자
   key: { x: number; y: number; holder: number | null; used: boolean };
   g: GraphWorld;                   // 그래프 공장 장치(조각·공·벌·썰매·목표)
+  h: ThingWorld;                   // 새 물건(things.json)의 지금 모습
   doorOpen: boolean;
   won: boolean;
   t: number;
@@ -72,6 +75,7 @@ export function createWorld(stage: Stage, players: { color: string }[], seed = 1
     active: new Set(),
     key: { x: stage.key!.x, y: stage.key!.y, holder: null, used: false },
     g: createGraph(stage.graph, seed),
+    h: createThingWorld(stage.things),
     doorOpen: false, won: false, t: 0,
   };
 }
@@ -88,6 +92,7 @@ function standable(stage: Stage, x: number, y: number) {
   for (const b of stage.bridges) for (const [c, r] of b.cells) if (overlap(me, { x: c * T, y: r * T, w: T, h: T })) return false;
   if (stage.key && overlap(me, { x: stage.key.x, y: stage.key.y, w: 32, h: 18 })) return false;
   if (stage.door && overlap(me, stage.door)) return false;
+  if (thingAvoid(stage, me)) return false;   // 새 물건 자리도 피한다
   const c0 = Math.floor(x / T), c1 = Math.floor((x + PW - 0.01) / T), r0 = Math.floor(y / T), r1 = Math.floor((y + PH - 0.01) / T);
   for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) if (cellSolid(stage, c, r)) return false;
   const fr = Math.floor((y + PH + 1) / T);
@@ -171,6 +176,7 @@ export function removePlayer(w: World, i: number) {
 
 /** 그 도름이가 든 것을 내려놓는다(조각은 떨어지고, 양동이는 놓이고, 썰매에서 내린다). */
 function release(w: World, i: number) {
+  thingsRelease(w, i);   // 든 새 물건은 처음 자리로
   const g = w.g;
   for (const pc of g.pieces) if (pc.state === 'held' && pc.holders.includes(i)) {
     if (pc.holders[0] === i) { pc.state = 'fall'; pc.holders = []; pc.vy = 0; } else pc.holders = pc.holders.filter(k => k !== i);
@@ -181,6 +187,7 @@ function release(w: World, i: number) {
 /** i 번째 도름이가 나갔다: 든 것을 내려놓고 뒤 번호를 하나씩 당긴다. */
 function graphRemove(w: World, i: number) {
   release(w, i);
+  thingsRemove(w, i);
   const g = w.g, sh = (k: number) => (k > i ? k - 1 : k);
   for (const pc of g.pieces) pc.holders = pc.holders.map(sh);
   if (g.bucket && g.bucket.holder > i) g.bucket.holder--;
@@ -201,7 +208,7 @@ function tileSolid(w: World, c: number, r: number) {
 }
 
 /** 다리 칸 가운데 지금 막힌 칸과 겹치는가. */
-function hitsBridge(w: World, r: Rect) {
+export function hitsBridge(w: World, r: Rect) {
   for (const b of w.stage.bridges) {
     if (!bridgeSolid(w, b.ch, b.mode)) continue;
     for (const [c, rr] of b.cells) if (overlap(r, { x: c * T, y: rr * T, w: T, h: T })) return true;
@@ -209,21 +216,29 @@ function hitsBridge(w: World, r: Rect) {
   return false;
 }
 
-function hitsTiles(w: World, r: Rect) {
+export function hitsTiles(w: World, r: Rect) {
   const c0 = Math.floor(r.x / T), c1 = Math.floor((r.x + r.w - 0.01) / T);
   const r0 = Math.floor(r.y / T), r1 = Math.floor((r.y + r.h - 0.01) / T);
   for (let rr = r0; rr <= r1; rr++) for (let cc = c0; cc <= c1; cc++) if (tileSolid(w, cc, rr)) return true;
   return false;
 }
 
-function crateAt(w: World, r: Rect, skip = -1) {
+export function crateAt(w: World, r: Rect, skip = -1) {
   for (let i = 0; i < w.crates.length; i++) if (i !== skip && overlap(r, w.crates[i])) return i;
   return -1;
 }
 
 /** 사람이 막히는가. 다리가 갑자기 생긴 자리에 이미 들어가 있던 사람은 빠져나올 수 있게 한다. */
-function blocked(w: World, r: Rect, insideBridge: boolean) {
-  return hitsTiles(w, r) || crateAt(w, r) >= 0 || (!insideBridge && hitsBridge(w, r));
+function blocked(w: World, r: Rect, insideBridge: boolean, self?: Rect, fromBottom?: number) {
+  return hitsTiles(w, r) || crateAt(w, r) >= 0 || (!insideBridge && hitsBridge(w, r)) || thingSolidAt(w, r, self, fromBottom);
+}
+
+/** 처음 자리로 되돌린다(떨어짐·깔림·닿으면 처음 자리로 가는 물건). 든 열쇠는 처음 자리로, 든 것은 내려놓는다. */
+export function respawn(w: World, p: Player) {
+  const at = spawnAt(w.stage, p.i);
+  p.x = at.x; p.y = at.y; p.vx = 0; p.vy = 0; p.jumpBuf = 0;   // 누른 채 떨어졌어도 되살아난 자리에서 저절로 뛰지 않는다
+  if (w.key.holder === p.i) dropKey(w);
+  release(w, p.i);
 }
 
 /**
@@ -246,6 +261,7 @@ export function step(w: World, pads: (Pad | undefined)[], dt: number) {
 function tick(w: World, pads: (Pad | undefined)[], dt: number) {
   if (w.won) return;
   w.t += dt;
+  thingsBefore(w, dt);
   const stage = w.stage;
   for (const p of w.players) { const a = !!pads[p.i]?.a; p.aNew = a && !p.aHeld; p.aHeld = a; }
   for (const p of w.players) {
@@ -276,7 +292,7 @@ function tick(w: World, pads: (Pad | undefined)[], dt: number) {
 
     // 가로: 막히면 제자리에 서지 않고 맞닿는 자리까지 다가간다(틈이 남으면 밀기 판정이 흔들린다)
     const nx = p.x + p.vx * dt;
-    const free = (x: number) => { const r = { x, y: p.y, w: p.w, h: p.h }; return !blocked(w, r, inside) && !otherAt(w, p, r); };
+    const free = (x: number) => { const r = { x, y: p.y, w: p.w, h: p.h }; return !blocked(w, r, inside, p) && !otherAt(w, p, r); };
     if (!m || free(nx)) p.x = nx;
     else { let x = p.x; while (Math.abs(x + m - p.x) <= Math.abs(nx - p.x) + 1 && free(x + m)) x += m; if (free(x)) p.x = x; }
 
@@ -289,30 +305,26 @@ function tick(w: World, pads: (Pad | undefined)[], dt: number) {
     const bonk = p.vy < 0 && !!touch && touch.y + touch.h <= p.y + 2;   // 머리 위에 친구가 서 있으면 못 뛰어오른다
     // 그래프 조각 위: 내려오다가 곡선에 닿으면 선다(밑에서 뛰어오를 때는 지나간다). 걷다가 발목 높이(9px)의 곡선은 계단처럼 올라선다
     const curve = p.vy >= 0 ? surfaceBelow(w.g, p.x + 3, p.x + p.w - 3, p.y + p.h - (p.onCurve || p.on ? 9 : 1), ny + p.h + (p.onCurve ? 9 : 0)) : null;
-    if (curve != null && !onHead && !blocked(w, { x: p.x, y: curve - p.h, w: p.w, h: p.h }, inside)) {
+    const feet = p.vy > 0 ? p.y + p.h : undefined;                      // 발판(ledge)은 위에서 내려올 때만 딛는다
+    if (curve != null && !onHead && !blocked(w, { x: p.x, y: curve - p.h, w: p.w, h: p.h }, inside, p, feet)) {
       p.y = curve - p.h; p.vy = 0; p.on = true; p.onCurve = true;
-    } else if (blocked(w, ry, inside) || onHead || bonk) {
+    } else if (blocked(w, ry, inside, p, feet) || onHead || bonk) {
       p.onCurve = false;
       if (p.vy > 0) {
         p.on = true;
         let y = p.y;
-        while (y < ny && !blocked(w, { x: p.x, y: y + 1, w: p.w, h: p.h }, inside) && !(onHead && y + 1 + p.h > under!.y)) y += 1;
+        while (y < ny && !blocked(w, { x: p.x, y: y + 1, w: p.w, h: p.h }, inside, p, feet) && !(onHead && y + 1 + p.h > under!.y)) y += 1;
         // 1px 걸음으로 다가가면 1px 안쪽 틈이 남는다. 땅·다리·상자 윗면은 정수 자리라 발을 그 면에, 친구 머리 위면 머리에 딱 붙인다.
         // 떠 있는 틈이 사람마다 달라서 머리 위 친구가 옆에서 다가오는 사람과 '겹친다'고 잘못 판정되던 것을 막는다.
         const snap = onHead ? under!.y - p.h : Math.ceil(y + p.h - 1e-6) - p.h;
-        if (snap > y && snap - y < 1 + 1e-6 && !blocked(w, { x: p.x, y: snap, w: p.w, h: p.h }, inside) && !(onHead ? false : otherAt(w, p, { x: p.x, y: snap, w: p.w, h: p.h }))) y = snap;
+        if (snap > y && snap - y < 1 + 1e-6 && !blocked(w, { x: p.x, y: snap, w: p.w, h: p.h }, inside, p, feet) && !(onHead ? false : otherAt(w, p, { x: p.x, y: snap, w: p.w, h: p.h }))) y = snap;
         p.y = y;
       }
       p.vy = 0;
     } else { p.y = ny; p.on = false; p.onCurve = false; }
     if (Math.abs(p.vx) > 0 && p.on) p.walk += dt * 10; else p.walk *= 0.8;
 
-    if (p.y > stage.rows * T + 60) { // 떨어지면 시작 자리로
-      const at = spawnAt(stage, p.i);
-      p.x = at.x; p.y = at.y; p.vx = 0; p.vy = 0; p.jumpBuf = 0;   // 누른 채 떨어졌어도 되살아난 자리에서 저절로 뛰지 않는다
-      if (w.key.holder === p.i) dropKey(w);
-      release(w, p.i);
-    }
+    if (p.y > stage.rows * T + 60) respawn(w, p);   // 떨어지면 시작 자리로
   }
 
   // 상자: 한쪽에서 미는 사람이 맞은편보다 필요 인원만큼 많아야 움직인다(같은 수로 맞서면 멈춘다)
@@ -321,14 +333,14 @@ function tick(w: World, pads: (Pad | undefined)[], dt: number) {
     const dir: -1 | 0 | 1 = r.length > l.length ? 1 : l.length > r.length ? -1 : 0, count = Math.abs(r.length - l.length);
     for (const p of dir > 0 ? r : dir < 0 ? l : []) { p.pressing = dir as -1 | 1; p.pressCrate = ci; }
     b.pushers = count;
-    const solidUnder = (rect: Rect) => hitsTiles(w, rect) || hitsBridge(w, rect) || crateAt(w, rect, ci) >= 0;
+    const solidUnder = (rect: Rect) => hitsTiles(w, rect) || hitsBridge(w, rect) || crateAt(w, rect, ci) >= 0 || thingSolidAt(w, rect, undefined, b.y + b.h);
     if (solidUnder({ x: b.x + 1, y: b.y + b.h, w: b.w - 2, h: 1 }) && dir && count >= b.need) {
       const dx = dir * CRATE_SPEED * dt;
       const nb = { x: b.x + dx, y: b.y, w: b.w, h: b.h };
       // 상자 앞에 선 사람은 같이 밀려 간다. 그 사람이 벽에 막혀 더 못 가면 상자도 멈춘다(사람이 상자에 묻히지 않게).
       const ahead = w.players.filter(p => !p.inDoor && overlap(p, nb) && !overlap(p, b));
       const squeezed = ahead.some(p => { const m = { x: p.x + dx, y: p.y, w: p.w, h: p.h }; const q = otherAt(w, p, m); return hitsTiles(w, m) || hitsBridge(w, m) || crateAt(w, m, ci) >= 0 || (!!q && !ahead.includes(q)); });
-      if (!hitsTiles(w, nb) && !hitsBridge(w, nb) && crateAt(w, nb, ci) < 0 && !squeezed) {
+      if (!hitsTiles(w, nb) && !hitsBridge(w, nb) && crateAt(w, nb, ci) < 0 && !thingSolidAt(w, nb, b) && !squeezed) {
         const riders = w.players.filter(p => !p.inDoor && p.on && p.x + p.w > b.x && p.x < b.x + b.w && Math.abs(p.y + p.h - b.y) < 2);
         for (const p of [...ahead, ...riders]) { const m = { x: p.x + dx, y: p.y, w: p.w, h: p.h }; if (!hitsTiles(w, m)) p.x += dx; }
         b.x = nb.x;
@@ -357,7 +369,7 @@ function tick(w: World, pads: (Pad | undefined)[], dt: number) {
     let spot: number | null = null;
     for (let d = 0; d <= b.w && spot == null; d += 4) for (const x of [near + d, near - d]) if (x >= b.x - p.w / 2 && x <= b.x + b.w - p.w / 2 && okAt(x)) { spot = x; break; }
     if (spot != null) { p.x = spot; p.y = b.y - p.h; p.vy = 0; }
-    else { const at = spawnAt(stage, p.i); p.x = at.x; p.y = at.y; p.vx = 0; p.vy = 0; p.jumpBuf = 0; if (w.key.holder === p.i) dropKey(w); release(w, p.i); }
+    else respawn(w, p);
   }
 
   // 겹친 도름이끼리는 조금씩 떨어진다(같은 칸에서 시작했거나 되살아난 자리에 친구가 있던 경우). 갈 곳이 막혀 있으면 그대로 둔다.
@@ -372,11 +384,13 @@ function tick(w: World, pads: (Pad | undefined)[], dt: number) {
 
   // 그래프 공장: 확인 누름 · 조각 · 공 · 벌 · 썰매 · 목표
   const opened = new Set<string>();
+  thingTick(w, dt);   // 새 물건이 쓴 확인 누름은 지워져 그래프 장치로 넘어가지 않는다
   graphTick(stage.graph, w.g, hostOf(w), dt, opened, () => 1);
   const sled = w.g.sled;
   if (sled?.run && sled.rider >= 0) { const p = w.players[sled.rider], at = riderSpot(sled); if (p) { p.x = at.x; p.y = at.y; p.vx = 0; p.vy = 0; p.on = true; } }
 
   // 단추와 다리
+  thingActive(w, ch => opened.add(ch));
   w.active = opened;
   stage.buttons.forEach((btn, bi) => {
     const n = w.players.filter(p => !p.inDoor && p.on && overlap({ x: p.x, y: p.y + 2, w: p.w, h: p.h }, btn)).length;

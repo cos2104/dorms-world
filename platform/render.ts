@@ -3,6 +3,8 @@ import { ATLAS, BODY_SHADES, MOTION, PALETTE, SPRITES, VIEW_H, VIEW_W, type Spri
 import { T, type Stage } from './stage';
 import { actionAt, atDoor, bridgeSolid, createWorld, type Action, type Player, type World } from './sim';
 import { INKS, type Sprite } from './sprite';
+import { itemRect, itemShown } from './things';
+import { ctxFor, thingActionAt, thingActionText } from './thing-sim';
 import { drawGraphBack, drawGraphFront, graphHud, latexText } from './graph/draw';
 
 const BASE = import.meta.env.BASE_URL;
@@ -120,6 +122,7 @@ function drawStage(c: CanvasRenderingContext2D, w: World, now: number, me: numbe
     c.drawImage(spr(top ? 'tile' : 'soil'), cc * T, r * T, T, T);
   }
   for (const d of s.decos) drawSprite(c, d.sprite, d.x, d.y, 2);
+  drawThings(c, w, now);
   drawGraphBack(c, s.graph, w.g, s.cols, s.rows, now);
   s.buttons.forEach((b, i) => {
     const down = w.pressed[i] >= w.needs[i], h = down ? 16 : 26;
@@ -127,24 +130,36 @@ function drawStage(c: CanvasRenderingContext2D, w: World, now: number, me: numbe
     if (w.needs[i] > 1) label(c, `${Math.min(w.pressed[i], w.needs[i])}/${w.needs[i]}`, b.x + b.w / 2, b.y - 26);
   });
   if (s.door) { const img = spr(w.doorOpen ? 'door_open' : 'door'); c.drawImage(img, s.door.x + s.door.w / 2 - 33, s.door.y + s.door.h - 86, w.doorOpen ? 82 : 66, 86); }
-  for (const b of w.crates) {
-    c.drawImage(spr('crate'), Math.round(b.x), Math.round(b.y), b.w, b.h);
-    if (b.need > 1 && b.pushers > 0 && b.pushers < b.need) label(c, `${b.pushers}/${b.need}`, b.x + b.w / 2, b.y - 8);
-  }
+  w.crates.forEach((b, ci) => {
+    const skin = s.crates[ci].skin;
+    if (skin) drawThingSprite(c, skin.frames, now, Math.round(b.x), Math.round(b.y), b.w, b.h);   // 팩의 밀리는 물건
+    else c.drawImage(spr('crate'), Math.round(b.x), Math.round(b.y), b.w, b.h);
+    const counting = b.need > 1 && b.pushers > 0 && b.pushers < b.need;
+    if (skin?.label) label(c, skin.label, b.x + b.w / 2, b.y - (counting ? 26 : 8));
+    if (counting) label(c, `${b.pushers}/${b.need}`, b.x + b.w / 2, b.y - 8);
+  });
   for (const g of s.signs) drawSign(c, g.x, g.y);
   const order = w.players.filter(p => !p.inDoor).sort((a, b) => Number(a.i === me) - Number(b.i === me));
   for (const p of order) drawDoreumi(c, p, now);
   drawGraphFront(c, s.graph, w.g, now, (x, y) => { const cc = Math.floor(x / T), r = Math.floor(y / T); return cc >= 0 && cc < s.cols && r >= 0 && r < s.rows && !!s.solid[r * s.cols + cc]; });
   // 머리 위에 무언가를 든 도름이는 번호표를 옆으로 비켜 적는다(손잡이를 가리지 않게)
-  const busy = (p: Player) => w.g.pieces.some(pc => pc.state === 'held' && pc.holders[0] === p.i) || w.g.bucket?.holder === p.i;
+  const held = new Map<number, number>();   // 도름이 차례 → 든 새 물건
+  w.h.items.forEach((it, i) => { if (it.at === 2) held.set(it.holder, i); });
+  for (const p of order) {   // 든 새 물건은 머리 위에(손님 화면은 요약 사이를 잇느라 도름이가 움직이니, 그릴 때 그 자리에서 잡는다)
+    const i = held.get(p.i); if (i == null) continue;
+    const k = s.things.kinds[s.things.items[i].kind];
+    drawThingSprite(c, k.frames, now, Math.round(p.x + p.w / 2 - k.w / 2), Math.round(p.y - k.h - 3), k.w, k.h);
+  }
+  const busy = (p: Player) => w.g.pieces.some(pc => pc.state === 'held' && pc.holders[0] === p.i) || w.g.bucket?.holder === p.i || held.has(p.i);
   for (const p of order) tag(c, p, p.i === me, busy(p) ? -p.h - 26 : 0, names?.[p.i]);
   if (!w.key.used) c.drawImage(spr('key'), Math.round(w.key.x), Math.round(w.key.y), 32, 18);
   if (me != null && w.players[me] && !w.players[me].inDoor) {
     const p = w.players[me];
     if (s.door && atDoor(w, p)) label(c, '확인을 눌러 들어가요', Math.max(84, Math.min(s.cols * T - 84, s.door.x + s.door.w / 2)), s.door.y - 6);   // 지도 끝에 선 문에서도 글이 잘리지 않게
-    const act = actionAt(w, p);
+    const tact = thingActionAt(w, p), act = tact ? null : actionAt(w, p);
     // 발밑 둘째 줄에 적는다(발밑 첫 줄은 장치 이름표와 겹친다)
-    if (act) label(c, actionText(w, act), Math.max(70, Math.min(s.cols * T - 70, p.x + p.w / 2)), p.y + p.h + 46);
+    const say = tact ? thingActionText(w, tact) : act ? actionText(w, act) : '';
+    if (say) label(c, say, Math.max(70, Math.min(s.cols * T - 70, p.x + p.w / 2)), p.y + p.h + 46);
     for (const g of s.signs) if (Math.abs(g.x + T / 2 - (p.x + p.w / 2)) < 50 && Math.abs(g.y - p.y) < 70) bubble(c, g.texts[me % g.texts.length], g.x + T / 2, g.y - 10);
   }
 }
@@ -157,11 +172,15 @@ function drawStage(c: CanvasRenderingContext2D, w: World, now: number, me: numbe
 export function nearText(w: World, me: number | null): string {
   const p = me != null ? w.players[me] : null;
   const gs = w.stage.graph;
-  if (!p || p.inDoor || !gs.factories.length) return '';
+  if (!p || p.inDoor) return '';
+  const tact = thingActionAt(w, p);
+  if (tact && !gs.factories.length) return thingActionText(w, tact);
+  if (!gs.factories.length) return '';
   let best = -1, far = 600;
   gs.factories.forEach((f, i) => { const r = f.press[0]; const d = Math.abs(r.x - p.x); if (d < far) { far = d; best = i; } });
   const lat = best >= 0 ? w.g.factories[best]?.latex : '';
   const act = actionAt(w, p);
+  if (tact) return [lat ? `지금 식  y = ${latexText(lat)}` : '', graphHud(gs, w.g), thingActionText(w, tact)].filter(Boolean).join('\n');
   return [lat ? `지금 식  y = ${latexText(lat)}` : '', graphHud(gs, w.g), act ? actionText(w, act) : ''].filter(Boolean).join('\n');
 }
 
@@ -185,7 +204,7 @@ function actionText(w: World, a: Action) {
 
 const spriteCache = new WeakMap<Sprite, HTMLCanvasElement>();
 /** 글자 그림을 그린다. cell 은 한 점의 크기(px). 한 번 그려 둔 것을 다시 쓴다. */
-function drawSprite(c: CanvasRenderingContext2D, sp: Sprite, x: number, y: number, cell: number) {
+function spriteCanvas(sp: Sprite) {
   let cv = spriteCache.get(sp);
   if (!cv) {
     cv = document.createElement('canvas'); cv.width = sp.w; cv.height = sp.h;
@@ -193,7 +212,51 @@ function drawSprite(c: CanvasRenderingContext2D, sp: Sprite, x: number, y: numbe
     sp.rows.forEach((row, r) => { for (let k = 0; k < sp.w; k++) if (row[k] !== '.') { g.fillStyle = INKS[row[k]]; g.fillRect(k, r, 1, 1); } });
     spriteCache.set(sp, cv);
   }
-  c.drawImage(cv, Math.round(x), Math.round(y), sp.w * cell, sp.h * cell);
+  return cv;
+}
+function drawSprite(c: CanvasRenderingContext2D, sp: Sprite, x: number, y: number, cell: number) {
+  c.drawImage(spriteCanvas(sp), Math.round(x), Math.round(y), sp.w * cell, sp.h * cell);
+}
+
+// ---------- 새 물건(things.json) ----------
+
+/** 여러 장 그림은 0.25초마다 넘긴다. 그림을 칸(w×h)에 맞춰 그린다(점 크기가 정수배라 뭉개지지 않는다). */
+function drawThingSprite(c: CanvasRenderingContext2D, frames: Sprite[], now: number, x: number, y: number, w: number, h: number) {
+  c.drawImage(spriteCanvas(frames[Math.floor(now / 250) % frames.length]), x, y, w, h);
+}
+
+/** 움직임이 고른 그림 차례(잘못된 값이면 첫 장). */
+function frameOf(w: World, i: number) {
+  const k = w.stage.things.kinds[w.stage.things.items[i].kind];
+  let f = 0;
+  try { f = Math.floor(Number(k.behavior!.frame!(ctxFor(w, i)))); } catch { f = 0; }
+  return Number.isInteger(f) && f >= 0 && f < k.frames.length ? f : 0;
+}
+
+/** 놓는 곳과 제자리·내려놓은 새 물건(든 것은 도름이와 함께 그린다). */
+function drawThings(c: CanvasRenderingContext2D, w: World, now: number) {
+  const s = w.stage.things;
+  s.goals.forEach((g, gi) => {
+    if (g.sprite) drawSprite(c, g.sprite, g.x + Math.round((g.w - g.sprite.w * 2) / 2), g.y + g.h - g.sprite.h * 2, 2);
+    else {   // 그림이 없으면 점선 테두리로 자리를 보인다
+      c.fillStyle = PALETTE.outline;
+      for (let x = g.x; x < g.x + g.w; x += 8) { c.fillRect(x, g.y, 4, 2); c.fillRect(x, g.y + g.h - 2, 4, 2); }
+      for (let y = g.y; y < g.y + g.h; y += 8) { c.fillRect(g.x, y, 2, 4); c.fillRect(g.x + g.w - 2, y, 2, 4); }
+    }
+    // 이름표는 받침 아래 땅에(머리 높이에 두면 그 자리에 선 도름이의 번호표·든 물건과 겹친다). 다 차면 노란 바탕
+    const n = Math.min(w.h.counts[gi], g.need), done = w.h.counts[gi] >= g.need;
+    const text = `${g.label ? g.label + ' ' : ''}${n}/${g.need}`, ly = g.y + g.h + 20;
+    if (done) { c.font = '700 12px Galmuri11, monospace'; const wd = Math.ceil(c.measureText(text).width) + 12; c.fillStyle = PALETTE.key; c.fillRect(Math.round(g.x + g.w / 2 - wd / 2), ly - 14, wd, 20); }
+    label(c, text, g.x + g.w / 2, ly);
+  });
+  for (let i = 0; i < s.items.length; i++) {
+    if (w.h.items[i].at === 2 || !itemShown(s, w.h, i, w.active)) continue;
+    const k = s.kinds[s.items[i].kind], r = itemRect(s, w.h, i, w.t);
+    const f = k.behavior?.frame ? frameOf(w, i) : -1;
+    if (f >= 0) c.drawImage(spriteCanvas(k.frames[f]), Math.round(r.x), Math.round(r.y), k.w, k.h);
+    else drawThingSprite(c, k.frames, now + i * 90, Math.round(r.x), Math.round(r.y), k.w, k.h);
+    if (k.label) label(c, k.label, r.x + r.w / 2, r.y - 4);
+  }
 }
 
 function label(c: CanvasRenderingContext2D, text: string, x: number, y: number) {
