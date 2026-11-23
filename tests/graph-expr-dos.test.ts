@@ -6,7 +6,8 @@ const evil = [
   '-'.repeat(158) + 'x', '+'.repeat(60) + 'x', '|'.repeat(60) + 'x', '-('.repeat(30) + 'x', '\\sin('.repeat(30) + 'x',
   '-x'.repeat(70), '-(-('.repeat(15) + 'x', '\\left|'.repeat(20) + 'x', '-\\cdot'.repeat(25) + 'x', '\\pm'.repeat(40) + 'x',
   '\\sin\\sin'.repeat(18) + 'x', 'x^{'.repeat(30) + 'x' + '}'.repeat(30), '\\frac{'.repeat(15) + '1}{2}'.repeat(15),
-  '-|x'.repeat(40), '(-'.repeat(30) + 'x' + ')'.repeat(30), '2'.repeat(158), '\\sqrt{'.repeat(30) + 'x' + '}'.repeat(30),
+  '-|x'.repeat(40), '\\vert'.repeat(30) + 'x', '\\lvert'.repeat(25) + 'x', '-{}'.repeat(50) + 'x', '{-}'.repeat(50) + 'x', '-~'.repeat(70) + 'x',
+  '\\mid'.repeat(35) + 'x', '\\|'.repeat(60) + 'x', '-\\,'.repeat(50) + 'x', '-\\quad'.repeat(25) + 'x', '\\times'.repeat(25) + 'x', '/'.repeat(150) + 'x', '^'.repeat(150) + 'x', '!'.repeat(150) + 'x', '*'.repeat(150) + 'x', '\\cdot'.repeat(30) + 'x', '\\left(-'.repeat(20) + 'x', '(-'.repeat(30) + 'x' + ')'.repeat(30), '2'.repeat(158), '\\sqrt{'.repeat(30) + 'x' + '}'.repeat(30),
 ];
 
 describe('수식 해석 시간 상한', () => {

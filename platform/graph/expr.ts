@@ -443,7 +443,11 @@ export function readFormula(latex: string): { ok: true; formula: Formula } | { o
   if (open !== 0 || !bracketsBalanced(clean)) return { ok: false, reason: MSG.incomplete };
   // 수식 해석기는 부호·절댓값 막대가 줄지어 나오면 시간이 기하급수로 늘어난다(짧은 글 하나로 판이 멈춘다).
   // 그래서 해석기에 넘기기 전에 값싸게 훑어 막는다. 실제 식에는 +·- 가 셋 넘게 붙거나 | 가 여섯 넘게 나오지 않는다.
-  const tight = clean.replace(/\\[,;:! ]|\s+/g, '');
+  // 띄움 명령·빈 묶음·물결(~)은 지우고, 막대를 뜻하는 명령은 모두 | 로 바꿔 센다(\vert·{-}{-} 로 돌아가지 못하게)
+  const tight = clean
+    .replace(/\\(?:left|right|big|Big|bigg|Bigg)[lr]?(?![a-zA-Z])/g, '')
+    .replace(/\\(?:[lr]?[vV]ert|mid|\|)(?![a-zA-Z])/g, '|')
+    .replace(/\\[,;:! ]|\\(?:quad|qquad|space|enspace|thinspace)(?![a-zA-Z])|[\s~{}]/g, '');
   if (/(?:[+\-]|\\pm|\\mp){3,}/.test(tight)) return { ok: false, reason: MSG.complex };
   if ((tight.match(/\|/g) ?? []).length > 6) return { ok: false, reason: MSG.complex };
   if ((tight.match(/[+\-]|\\pm|\\mp/g) ?? []).length > 40) return { ok: false, reason: MSG.complex };
