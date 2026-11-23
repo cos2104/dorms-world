@@ -29,7 +29,8 @@ const NARROW = rows([
 ]);
 const narrow = (need: number) => parseStage(NARROW, { legend: { a: { type: 'button', need, opens: ['x'] }, b: { type: 'button', need, opens: ['x'] }, x: { type: 'bridge' } } });
 
-describe('봇이 못 깨면 그렇다고 알려 준다', () => {
+// 봇은 판을 실제로 수백 걸음 굴린다. 맥에서 1초 안이지만 그래픽 없는 윈도우 러너는 5초를 넘기기도 해서(판정과 무관한 시간 초과) 시간 한도를 넉넉히 둔다
+describe('봇이 못 깨면 그렇다고 알려 준다', { timeout: 30_000 }, () => {
   it('2명: 문이 너무 높은 턱 위에 있으면 막혔다고 하고, 어디서 막혔는지 말한다', () => {
     const r = playStage(parseStage(HIGH_LEDGE), 2);
     expect(r.verdict).toBe('stuck');
