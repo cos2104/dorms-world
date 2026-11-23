@@ -8,13 +8,13 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { Stage } from '../platform/stage';
-import { readStage } from './pack-io';
+import { readJson, readStage } from './pack-io';
 import { createWorld, step, SPEED, type Pad, type World } from '../platform/sim';
 
 const root = fileURLToPath(new URL('../packs/', import.meta.url));
 const dirs = (p: string) => readdirSync(p).filter(n => lstatSync(join(p, n)).isDirectory());   // 바로 가기 폴더는 따라가지 않는다
 const stages = dirs(root).flatMap(f => dirs(join(root, f)).flatMap(n => {
-  const dir = join(root, f, n), meta = JSON.parse(readFileSync(join(dir, 'pack.json'), 'utf8'));
+  const dir = join(root, f, n), meta = readJson(join(dir, 'pack.json'));
   for (const s of meta.stages) if (!/^\d{2}$/.test(String(s.file))) throw new Error(`${f}/${n}: 스테이지 파일 이름은 두 자리 숫자여야 해요("${s.file}")`);
   return (meta.stages as { file: string; name: string }[]).map(s => ({ id: `${f}/${n} ${s.file} ${s.name}`, load: () => readStage(dir, String(s.file)).stage }));
 })).filter(s => { const st = s.load(); return st.scales.length > 0 && !st.buttons.length && !st.crates.length; });

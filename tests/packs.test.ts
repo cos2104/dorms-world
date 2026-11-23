@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { resolveNeed, type StageJson } from '../platform/stage';
-import { readSprites, readStage } from './pack-io';
+import { readJson, readSprites, readStage } from './pack-io';
 import { createWorld, step, type Pad } from '../platform/sim';
 import { peopleFor, playStage } from '../scripts/bots/engine';
 
@@ -21,7 +21,7 @@ const walk = (p: string): string[] => readdirSync(p).flatMap(n => (statSync(join
 describe('팩이 하나 이상 있다', () => { it('packs/', () => expect(packs.length).toBeGreaterThan(0)); });
 
 describe.each(packs)('팩 $id', ({ id, dir }) => {
-  const meta = JSON.parse(readFileSync(join(dir, 'pack.json'), 'utf8'));
+  const meta = readJson(join(dir, 'pack.json'));
   const files = walk(dir);
 
   it('팩 정보가 약속대로다', () => {
@@ -54,7 +54,7 @@ describe.each(packs)('팩 $id', ({ id, dir }) => {
   it('글자 그림이 화풍 약속대로다(정해진 물감, 크기, 남색 윤곽)', () => { expect(() => readSprites(dir)).not.toThrow(); });
 
   describe.each(meta.stages as { file: string; name: string }[])('스테이지 $file', ({ file }) => {
-    const def: StageJson = JSON.parse(readFileSync(join(dir, 'stages', `${file}.json`), 'utf8'));
+    const def: StageJson = readJson(join(dir, 'stages', `${file}.json`));
     const load = () => readStage(dir, file).stage;
 
     it('지도를 읽을 수 있다', () => { expect(() => load()).not.toThrow(); });

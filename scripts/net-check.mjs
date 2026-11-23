@@ -10,6 +10,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
@@ -58,14 +59,14 @@ const mock = createServer((req, res) => {
 });
 if (ownRoom) await new Promise(r => mock.listen(MOCK_PORT, '127.0.0.1', r));
 // 방 서버는 시험용 값으로 띄운다. gate 가 false 면 주소마다의 횟수 제한을 끈다(이 시험은 한 주소에서 방을 잇달아 만든다)
-const roomUp = (gate = false) => up(`${root}room-server/node_modules/.bin/wrangler`, ['dev', '--port', String(ROOM_PORT), '--inspector-port', String(ROOM_PORT + 540), '--ip', '127.0.0.1',
-  '--var', `WORLD_ROOM_SECRET:${SECRET}`, '--var', `RANKS_URL:http://127.0.0.1:${MOCK_PORT}/ranks`, '--var', `USES_URL:http://127.0.0.1:${MOCK_PORT}/uses`, '--var', `CONSENTS_URL:http://127.0.0.1:${MOCK_PORT}/consents`, '--var', `GATE_OFF:${gate ? '0' : '1'}`], `${root}room-server`, { WRANGLER_SEND_METRICS: 'false' });
+const roomUp = (gate = false) => up(join(root, 'room-server', 'node_modules', '.bin', 'wrangler'), ['dev', '--port', String(ROOM_PORT), '--inspector-port', String(ROOM_PORT + 540), '--ip', '127.0.0.1',
+  '--var', `WORLD_ROOM_SECRET:${SECRET}`, '--var', `RANKS_URL:http://127.0.0.1:${MOCK_PORT}/ranks`, '--var', `USES_URL:http://127.0.0.1:${MOCK_PORT}/uses`, '--var', `CONSENTS_URL:http://127.0.0.1:${MOCK_PORT}/consents`, '--var', `GATE_OFF:${gate ? '0' : '1'}`], join(root, 'room-server'), { WRANGLER_SEND_METRICS: 'false' });
 let roomKid = null, BARE = '';
 if (ownRoom) { ROOM = `http://127.0.0.1:${ROOM_PORT}`; roomKid = roomUp(); await waitFor(`${ROOM}/`, '방 서버'); }
 if (ownSite) {
   SITE = `http://127.0.0.1:${SITE_PORT}/world/`; BARE = `http://127.0.0.1:${SITE_PORT + 1}/world/`;
-  up(`${root}node_modules/.bin/vite`, ['--port', String(SITE_PORT), '--strictPort', '--host', '127.0.0.1'], root, { VITE_ROOM_URL: ROOM });
-  up(`${root}node_modules/.bin/vite`, ['--port', String(SITE_PORT + 1), '--strictPort', '--host', '127.0.0.1'], root, { VITE_ROOM_URL: '' });   // 방 서버 주소 없이 지은 화면
+  up(join(root, 'node_modules', '.bin', 'vite'), ['--port', String(SITE_PORT), '--strictPort', '--host', '127.0.0.1'], root, { VITE_ROOM_URL: ROOM });
+  up(join(root, 'node_modules', '.bin', 'vite'), ['--port', String(SITE_PORT + 1), '--strictPort', '--host', '127.0.0.1'], root, { VITE_ROOM_URL: '' });   // 방 서버 주소 없이 지은 화면
   await waitFor(SITE, '개발 서버'); await waitFor(BARE, '개발 서버(방 서버 주소 없음)');
 }
 const ORIGIN = new URL(SITE).origin, WS = ROOM.replace(/^http/, 'ws');
