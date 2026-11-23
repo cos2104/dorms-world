@@ -5,12 +5,13 @@
  *   - 물건 하나마다 수 4칸(vars)이 있고 방 안 모두에게 저절로 맞춰진다. 상태는 여기에만 둔다(다른 곳에 두면 손님 화면과 갈라진다).
  *   - vars[0] 이 0 이 아니면 그 물건 종류의 opens 다리가 켜진다.
  *   - 그림은 그 물건의 글자 그림(frames) 가운데 몇째 장을 그릴지만 고른다(화풍이 하나로 유지된다).
- * 지킬 것: 바깥과 주고받는 코드(fetch, 저장소, 주소), 시간·난수(Date, Math.random) 금지. 같은 입력이면 같은 결과여야 방장이 바뀌어도 이어진다.
+ * 지킬 것: 바깥과 주고받는 코드(fetch, 저장소, 주소), 시간·난수(Date, Math.random), 끝없는 반복(while, for(;;)) 금지. 같은 입력이면 같은 결과여야 방장이 바뀌어도 이어진다.
+ * 기계 검사는 tests/behaviors-rules.test.ts(문법 나무로 본다). 마지막 관문은 운영자가 병합할 때 한 줄씩 읽는 것이다.
  * 형식 설명은 kit/DEVICE_GUIDE.md '새 움직임'.
  */
 import type { Rect } from './stage';
 
-/** 도름이 한 명에 대해 움직임이 보고 바꿀 수 있는 것. */
+/** 도름이 한 명에 대해 움직임이 보는 것(사본이다). 바꿀 수 있는 것은 vy(위아래 속도) 하나. 자리를 옮기려면 respawn·launch 를 쓴다. */
 export type BehaviorPlayer = Readonly<Rect> & { readonly i: number; readonly on: boolean; vy: number };
 
 export type BehaviorCtx = {
@@ -39,7 +40,7 @@ export type Behavior = {
   init?: number[];
   /** 매 걸음(1/60초). touching: 지금 이 물건에 닿은 도름이들. */
   tick?: (ctx: BehaviorCtx, dt: number, touching: BehaviorPlayer[]) => void;
-  /** 가까이에서 확인을 눌렀다. 무언가 했으면 true(그 누름은 다른 장치로 넘어가지 않는다). */
+  /** 가까이에서 확인을 눌렀다. 무언가 했으면 true(그 누름은 다른 장치로 넘어가지 않는다). true 가 아니면 누름은 다른 장치로 넘어간다. */
   use?: (ctx: BehaviorCtx, p: BehaviorPlayer) => boolean;
   /** 확인을 누르면 무엇을 하는지 안내(12자 안팎, 없으면 안내하지 않음). */
   useText?: (ctx: BehaviorCtx) => string | null;

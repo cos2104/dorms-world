@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseStage, T } from '../platform/stage';
 import { createWorld, step, PH, type Pad, type World } from '../platform/sim';
 import { parseSprite } from '../platform/sprite';
-import { parseKinds } from '../platform/things';
+import { itemRect, parseKinds } from '../platform/things';
 import { BEHAVIORS } from '../platform/behavior';
 import { applyWire, readWire, toWire } from '../platform/sync';
 import { thingActionAt } from '../platform/thing-sim';
@@ -228,5 +228,68 @@ describe('선생님이 더하는 새 움직임(platform/behaviors)', () => {
       expect(w.h.items[0].v).toEqual([0, 1e6, 0, 0]);
       expect(readWire(JSON.parse(JSON.stringify(toWire(w, [0], 1, 1))))).not.toBeNull();
     } finally { delete BEHAVIORS['test-boom']; }
+  });
+});
+
+describe('검증에서 찾은 경우들', () => {
+  const sp = { ...sprites, wide: parseSprite(['nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn', 'ngggggggggggggggggggggggggggggggggggggggggggn', 'nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn'].join('\n'), 'wide') };
+  it('위로 가는 발판에 얹은 물건은 함께 올라간다(뚫고 떨어지지 않는다)', () => {
+    const kinds = parseKinds({ lift: { name: '승강기', sprite: 'wide', body: 'ledge', move: { dy: -3, speed: 1 } }, seed: { name: '씨앗', sprite: 'seed', body: 'carry' } }, sp);
+    const m = map(['', '', '', '', '', '', '', '', '.....l....................', '.@............K....D......', '##########################', '##########################']);
+    // 씨앗 하나를 발판 위에 얹은 세계(지도 글자로는 발판 위 칸에 못 놓으니 직접 둔다)
+    const st = parseStage(m, { legend: { l: { type: 'thing', thing: 'lift' } } }, sp, kinds);
+    st.things.kinds.push(kinds.seed); st.things.items.push({ kind: st.things.kinds.length - 1, x: 5 * T + 20, y: 9 * T - 6 - 14 });
+    const w = createWorld(st, [{ color: '#fff' }]);
+    w.players[0].x = 1 * T;
+    run(w, [stay], 1.5);
+    const liftTop = itemRect(st.things, w.h, 0, w.t).y;
+    expect(liftTop).toBeLessThan(9 * T - 6 - 30);                  // 발판이 올라갔고
+    expect(Math.abs(w.h.items[1].y + 14 - liftTop)).toBeLessThan(1); // 씨앗은 그 위에 그대로 얹혀 있다
+  });
+  it('움직이는 발판 위 친구의 머리 위에 선 친구도 함께 실려 간다', () => {
+    const kinds = parseKinds({ cloud: { name: '구름', sprite: 'wide', body: 'ledge', move: { dx: 6, speed: 2 } } }, sp);
+    const m = map(['', '', '', '', '', '', '', '', '.....c....................', '.@............K....D......', '##########################', '##########################']);
+    const w = createWorld(parseStage(m, { legend: { c: { type: 'thing', thing: 'cloud' } } }, sp, kinds), [{ color: '#fff' }, { color: '#fff' }]);
+    const top = 9 * T - 6;
+    w.players[0].x = 5 * T + 10; w.players[0].y = top - PH; w.players[0].vy = 0;
+    w.players[1].x = 5 * T + 10; w.players[1].y = top - 2 * PH; w.players[1].vy = 0;
+    run(w, [stay, stay], 0.3);
+    const x0 = w.players[0].x, x1 = w.players[1].x;
+    run(w, [stay, stay], 1);
+    expect(w.players[0].x - x0).toBeGreaterThan(40);
+    expect(Math.abs((w.players[1].x - x1) - (w.players[0].x - x0))).toBeLessThan(2);
+    expect(w.players[1].y + PH).toBeCloseTo(w.players[0].y, 0);   // 여전히 머리 위
+  });
+  it('벽에 붙어 내려놓으면 벽 속이 아니라 빈 자리에 놓는다', () => {
+    const kinds = parseKinds({ box: { name: '통', sprite: 'wide', size: 1, body: 'carry' } }, sp);
+    const m = map(['', '', '', '', '', '', '', '', '', '#@...s........K....D......', '##########################', '##########################']);
+    const w = createWorld(parseStage(m, { legend: { s: { type: 'thing', thing: 'box' } } }, sp, kinds), [{ color: '#fff' }]);
+    walkTo(w, 0, 5 * T); press(w, 0);
+    walkTo(w, 0, 1 * T); press(w, 0);
+    const it = w.h.items[0];
+    expect(it.at).toBe(0);
+    expect(it.x).toBeGreaterThanOrEqual(T);   // 왼쪽 벽 칸(0번 칸) 안으로 들어가지 않는다
+  });
+  it('움직임은 도름이 사본을 받는다(자리를 바꿔도 판에는 안 들어간다), use 가 false 면 누름이 남는다', () => {
+    BEHAVIORS['test-push'] = { about: '시험용', tick: (_ctx, _dt, ps) => { for (const p of ps) (p as { x: number }).x = 0; }, use: () => false };
+    try {
+      const kinds = parseKinds({ pad: { name: '판', sprite: 'slab', behavior: 'test-push' } }, sp);
+      const m = map(['', '', '', '', '', '', '', '', '', '.@...s........K....D......', '##########################', '##########################']);
+      const w = createWorld(parseStage(m, { legend: { s: { type: 'thing', thing: 'pad' } } }, sp, kinds), [{ color: '#fff' }]);
+      walkTo(w, 0, 5 * T);
+      expect(w.players[0].x).toBeGreaterThan(4 * T);
+      w.players[0].aHeld = false;
+      step(w, [tap], 1 / 60);
+      expect(w.players[0].aNew).toBe(true);
+    } finally { delete BEHAVIORS['test-push']; }
+  });
+  it('그래프 조각을 든 동안은 새 물건을 집지 않는다(두 개를 함께 들지 않게)', () => {
+    const kinds = parseKinds({ seed: { name: '씨앗', sprite: 'seed', body: 'carry' } }, sp);
+    const m = map(['', '', '', '', '', '', '', '', '', '.@...s........K....D......', '##########################', '##########################']);
+    const w = createWorld(parseStage(m, { legend: { s: { type: 'thing', thing: 'seed' } } }, sp, kinds), [{ color: '#fff' }]);
+    walkTo(w, 0, 5 * T);
+    expect(thingActionAt(w, w.players[0])).toMatchObject({ do: 'pick' });
+    w.g.pieces.push({ state: 'held', holders: [0] } as never);
+    expect(thingActionAt(w, w.players[0])).toBeNull();
   });
 });

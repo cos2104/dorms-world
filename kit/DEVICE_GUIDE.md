@@ -33,9 +33,11 @@ export default counter;
 | `vars[0]` | 0 이 아니면 그 물건 종류의 `opens` 다리가 켜진다 |
 | `ctx.respawn(p)`, `ctx.launch(p, 칸)`, `ctx.remove()`, `ctx.isOn(글자)`, `ctx.t`, `ctx.players` | 처음 자리로 보내기, 튕겨 올리기, 물건 없애기, 다리가 켜졌나, 지난 시간, 방 인원 |
 
-지킬 것(검사 `tests/behaviors-rules.test.ts` 가 먼저 거른다)
-- `import type { Behavior } from '../behavior'` 말고는 가져다 쓰지 않는다.
-- 바깥과 주고받는 코드(fetch 등), 화면·저장소에 손대는 코드(window, document, localStorage), 시간과 난수(Date, Math.random)를 쓰지 않는다. 같은 입력이면 같은 결과여야 방장이 바뀌어도 이어진다.
+지킬 것(검사 `tests/behaviors-rules.test.ts` 가 문법 나무로 먼저 거르고, 운영자가 병합할 때 한 줄씩 다시 읽는다. 이 검사 파일과 `platform/behavior.ts` 는 요청이 고칠 수 없다)
+- `import type { Behavior } from '../behavior'` 말고는 가져다 쓰지 않는다. 맨 위에는 const, function, export default 만 둔다.
+- 바깥과 주고받는 코드(fetch 등), 화면·저장소에 손대는 코드(window, document, localStorage), 시간과 난수(Date, Math.random), `new`, 정규식, `[ ]` 로 글자를 넣어 속성 고르기를 쓰지 않는다. 같은 입력이면 같은 결과여야 방장이 바뀌어도 이어진다.
+- 반복은 `for (let k = 0; k < 10; k++)` 처럼 횟수를 정한다(while, 끝 조건 없는 for 는 판을 멈춘다).
+- `use` 가 아무것도 안 했으면 `false` 를 돌려준다(그 누름이 옆의 다른 장치로 간다). 도름이는 사본이라 `vy` 만 바꿀 수 있고, 옮기려면 `ctx.respawn`·`ctx.launch` 를 쓴다.
 - 다른 교과에서도 쓸 수 있는 이름으로 짓는다(`stomach` 대신 `grinder`). 그림은 팩의 글자 그림으로 갈아 끼우게 둔다.
 - 규칙마다 시험을 `tests/` 에 더한다(`tests/things.test.ts` 의 '새 움직임' 시험이 본보기). 혼자서는 안 되게 만들었으면 그것도 시험한다.
 - 오류가 나도 판은 멈추지 않고 그 걸음만 건너뛰지만, 그런 일이 없게 직접 해 본다.

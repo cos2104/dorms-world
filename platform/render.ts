@@ -150,8 +150,10 @@ function drawStage(c: CanvasRenderingContext2D, w: World, now: number, me: numbe
     const k = s.things.kinds[s.things.items[i].kind];
     drawThingSprite(c, k.frames, now, Math.round(p.x + p.w / 2 - k.w / 2), Math.round(p.y - k.h - 3), k.w, k.h);
   }
-  const busy = (p: Player) => w.g.pieces.some(pc => pc.state === 'held' && pc.holders[0] === p.i) || w.g.bucket?.holder === p.i || held.has(p.i);
-  for (const p of order) tag(c, p, p.i === me, busy(p) ? -p.h - 26 : 0, names?.[p.i]);
+  const busy = (p: Player) => w.g.pieces.some(pc => pc.state === 'held' && pc.holders[0] === p.i) || w.g.bucket?.holder === p.i;
+  // 새 물건은 작아서 번호표를 물건 위에 올린다(발밑으로 내리면 땅 속 놓는 곳 이름표와 겹친다)
+  const above = (p: Player) => { const i = held.get(p.i); return i == null ? 0 : s.things.kinds[s.things.items[i].kind].h + 2; };
+  for (const p of order) tag(c, p, p.i === me, busy(p) ? -p.h - 26 : above(p), names?.[p.i]);
   if (!w.key.used) c.drawImage(spr('key'), Math.round(w.key.x), Math.round(w.key.y), 32, 18);
   if (me != null && w.players[me] && !w.players[me].inDoor) {
     const p = w.players[me];
@@ -237,8 +239,10 @@ function frameOf(w: World, i: number) {
 function drawThings(c: CanvasRenderingContext2D, w: World, now: number) {
   const s = w.stage.things;
   s.goals.forEach((g, gi) => {
+    // 모으기만 받는 곳(어디서 닿아도 센다)은 가져다 놓는 자리처럼 보이지 않게 테두리를 그리지 않는다
+    const collectOnly = g.accepts.every(ki => s.kinds[ki].touch === 'collect');
     if (g.sprite) drawSprite(c, g.sprite, g.x + Math.round((g.w - g.sprite.w * 2) / 2), g.y + g.h - g.sprite.h * 2, 2);
-    else {   // 그림이 없으면 점선 테두리로 자리를 보인다
+    else if (!collectOnly) {   // 그림이 없으면 점선 테두리로 자리를 보인다
       c.fillStyle = PALETTE.outline;
       for (let x = g.x; x < g.x + g.w; x += 8) { c.fillRect(x, g.y, 4, 2); c.fillRect(x, g.y + g.h - 2, 4, 2); }
       for (let y = g.y; y < g.y + g.h; y += 8) { c.fillRect(g.x, y, 2, 4); c.fillRect(g.x + g.w - 2, y, 2, 4); }

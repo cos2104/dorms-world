@@ -35,11 +35,15 @@ const browser = await chromium.launch({ executablePath: process.env.PW_CHROME ||
 const page = await browser.newPage();
 const px = await page.evaluate(async ({ b64, mime }) => {
   const img = new Image(); img.src = `data:${mime};base64,${b64}`; await img.decode();
-  const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
-  const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+  if (img.naturalWidth * img.naturalHeight > 40e6) return null;   // 너무 큰 그림은 읽지 않는다(컴퓨터가 멈추지 않게)
+  // 먼저 가로세로 512점 안으로 줄여 그린 뒤 읽는다(글자 그림은 48점까지라 충분하다)
+  const f = Math.min(1, 512 / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(img.naturalWidth * f)); c.height = Math.max(1, Math.round(img.naturalHeight * f));
+  const g = c.getContext('2d'); g.drawImage(img, 0, 0, c.width, c.height);
   return { w: c.width, h: c.height, d: Array.from(g.getImageData(0, 0, c.width, c.height).data) };
 }, { b64: bytes.toString('base64'), mime });
 await browser.close();
+if (!px) stop('그림이 너무 커요(가로×세로 4천만 점까지). 작게 줄인 그림으로 다시 해 주세요.');
 
 // 바탕 지우기: 투명하지 않은 그림이면 네 귀퉁이의 색을 바탕으로 본다
 const at = (x, y) => { const i = (y * px.w + x) * 4; return px.d.slice(i, i + 4); };

@@ -102,7 +102,7 @@ export function parseStage(mapText: string, json: StageJson = {}, sprites: Recor
   for (const [ch, def] of Object.entries(legend) as [string, unknown][]) {
     if (def === null || typeof def !== 'object' || Array.isArray(def)) throw new Error(`legend 의 "${ch}" 는 { "type": "button" } 같은 모양이어야 해요.`);
     const type = (def as { type?: unknown }).type;
-    if (typeof type !== 'string' || !KEYS[type]) throw new Error(`"${ch}" 의 type 을 모르겠어요. ${TYPES} 가운데 하나예요.`);
+    if (typeof type !== 'string' || !Object.hasOwn(KEYS, type)) throw new Error(`"${ch}" 의 type 을 모르겠어요. ${TYPES} 가운데 하나예요.`);
     for (const k of Object.keys(def)) if (!KEYS[type].includes(k)) throw new Error(`"${ch}"(${type})의 "${k}" 는 모르는 칸이에요. 쓸 수 있는 칸: ${KEYS[type].join(', ')}.`);
   }
   for (const ch of Object.keys(legend)) if (!/^[a-z0-9]$/.test(ch)) throw new Error(`장치 글자는 영문 소문자나 숫자 한 글자여야 해요: "${ch}"`);
@@ -179,7 +179,7 @@ export function parseStage(mapText: string, json: StageJson = {}, sprites: Recor
       if (decos.length > 60) throw new Error('꾸밈 그림은 한 스테이지에 60개까지예요.');
     } else if (def.type === 'thing' || def.type === 'goal') {
       parseThingLegend(ch, def as Record<string, unknown>, cells, at, kinds, sprites, groups, things, crates);
-    } else if (def.type in GRAPH_KEYS) {
+    } else if (Object.hasOwn(GRAPH_KEYS, def.type)) {
       parseGraphLegend(graph, ch, def as GraphLegend, cells, at, groups, legend);
     } else {
       throw new Error(`"${ch}" 의 type 을 모르겠어요. ${TYPES} 가운데 하나예요.`);
@@ -187,6 +187,7 @@ export function parseStage(mapText: string, json: StageJson = {}, sprites: Recor
   }
   finishGraph(graph, legend);
   const graphOpens = new Set([...graph.goals.flatMap(x => x.opens), ...graph.slots.flatMap(x => x.opens), ...(graph.sled?.opens ?? [])]);
+  if (crates.length > 200) throw new Error('상자와 밀리는 물건은 한 스테이지에 200개까지예요.');
   finishThings(things, ch => legend[ch]?.type === 'bridge');
   for (const ch of thingOpens(things)) graphOpens.add(ch);
   for (const b of bridges) if (!buttons.some(x => x.opens.includes(b.ch)) && !graphOpens.has(b.ch)) throw new Error(`다리 "${b.ch}" 를 여는 단추나 장치가 없어요.`);

@@ -23,7 +23,7 @@ jobs:
           read=$(gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" --jq '.[].filename' | wc -l | tr -d ' ')
           label="팩만"
           # 팩 폴더 안의 허락된 파일(pack.json, DESIGN.md, stages, sprites, 프로필 그림)만 바뀌었을 때만 '팩만'이다
-          allowed='^packs/[a-z0-9-]+/[a-z0-9-]+/(pack\.json|DESIGN\.md|stages/[0-9]{2}\.(json|map\.txt)|sprites/[a-z0-9-]+\.txt|[a-z0-9-]+\.(png|webp))$'
+          allowed='^packs/[a-z0-9-]+/[a-z0-9-]+/(pack\.json|DESIGN\.md|things\.json|stages/[0-9]{2}\.(json|map\.txt)|sprites/[a-z0-9-]+\.txt|[a-z0-9-]+\.(png|webp))$'
           if printf '%s\n' "$files" | grep -qvE "$allowed"; then label="판 변경 포함"; fi
           # 팩 하나만 바뀌어야 '팩만'이다(다른 팩을 고치거나 지우는 요청은 운영자가 직접 살핀다)
           packs=$(printf '%s\n' "$files" | grep -oE '^packs/[a-z0-9-]+/[a-z0-9-]+/' | sort -u | wc -l | tr -d ' ')
@@ -31,7 +31,7 @@ jobs:
           # 다 읽지 못했으면 가장 조심스러운 쪽으로 붙인다
           if [ "$total" != "$read" ]; then label="판 변경 포함"; fi
           # 검사기와 배포 설정을 건드리는 요청은 싣지 않는다(검사 결과를 요청이 스스로 정하게 되므로)
-          blocked='^(\.github/|scripts/|package(-lock)?\.json$|vercel\.json$|vite\.config\.ts$|vitest\.config\.ts$|tsconfig\.json$|index\.html$|public/|tests/(packs|pack-files)\.test\.ts$|tests/pack-io\.ts$|CLAUDE\.md$|AGENTS\.md$|\.claude/)'
+          blocked='^(\.github/|scripts/|package(-lock)?\.json$|vercel\.json$|vite\.config\.ts$|vitest\.config\.ts$|tsconfig\.json$|index\.html$|public/|tests/(packs|pack-files|behaviors-rules)\.test\.ts$|platform/behavior\.ts$|tests/pack-io\.ts$|CLAUDE\.md$|AGENTS\.md$|\.claude/)'
           if printf '%s\n' "$files" | grep -qE "$blocked"; then label="실을 수 없는 파일"; fi
           for l in "팩만" "판 변경 포함" "실을 수 없는 파일"; do
             if [ "$l" = "$label" ]; then gh pr edit "$PR" --repo "$REPO" --add-label "$l"; else gh pr edit "$PR" --repo "$REPO" --remove-label "$l" 2>/dev/null || true; fi
