@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const SHOTS = join(fileURLToPath(new URL('..', import.meta.url)), '.shots') + (process.platform === 'win32' ? '\\' : '/');   // 윈도우·맥 어디서나 같은 폴더
 mkdirSync(SHOTS, { recursive: true });
-const [pack = 'math/scale-equation', people = '2', base = 'http://localhost:5310/world/', w = '1280', h = '800'] = process.argv.slice(2);
+const [pack = 'math/graph-factory', people = '2', base = 'http://localhost:5310/world/', w = '1280', h = '800'] = process.argv.slice(2);
 if (!/^[a-z0-9-]+\/[a-z0-9-]+$/.test(pack) || !/^\d{1,2}$/.test(people) || !/^\d{3,4}$/.test(w) || !/^\d{3,4}$/.test(h)) { console.error('인자를 확인해 주세요.'); process.exit(1); }
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: +w, height: +h }, deviceScaleFactor: 1 });

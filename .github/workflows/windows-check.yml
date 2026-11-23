@@ -33,10 +33,10 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run check:security
-      - run: npm run play:bots -- math/scale-equation --players 8
-      - run: npm run units -- ms1 수학
+      - run: npm run play:bots -- etc/tutorial --players 8
+      - run: npm run units -- ms2 수학
       - name: 도름스로 보내기(보내기 직전까지)
-        run: npm run submit -- math/scale-equation --dry-run
+        run: npm run submit -- math/graph-factory --dry-run
       - name: 개발 서버를 띄우고 화면을 찍는다
         run: |
           npx playwright install chromium
@@ -44,9 +44,9 @@ jobs:
           $up = $false
           for ($i = 0; $i -lt 60 -and -not $up; $i++) { Start-Sleep 1; try { $up = (Invoke-WebRequest http://localhost:5310/world/ -UseBasicParsing).StatusCode -eq 200 } catch {} }
           if (-not $up) { throw '개발 서버가 뜨지 않았어요' }
-          node scripts/pack-shot.mjs math/scale-equation 2 http://localhost:5310/world/
+          node scripts/pack-shot.mjs math/graph-factory 2 http://localhost:5310/world/
           if ($LASTEXITCODE -ne 0) { throw '화면 찍기 실패' }
-          if (-not (Test-Path .shots/pack-math_scale-equation-01-2p-1280.png)) { throw '화면 그림이 없어요' }
+          if (-not (Test-Path .shots/pack-math_graph-factory-01-2p-1280.png)) { throw '화면 그림이 없어요' }
           taskkill /pid $dev.Id /T /F | Out-Null
       # 온라인 확인은 돌려서 결과를 남기되 막지는 않는다. 순위 기록 시험이 GitHub 러너(리눅스도)에서만 떨어지고(맥은 통과),
       # 윈도우 러너는 그래픽 없이 브라우저 30개를 그려 맥·리눅스보다 걸음이 20배쯤 느리다(2026-11-23 비교). 고치면 continue-on-error 를 뗀다.

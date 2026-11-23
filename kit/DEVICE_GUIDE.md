@@ -1,6 +1,6 @@
 # 새 장치(조작법) 더하기
 
-수업 내용이 판에 없는 움직임을 요구할 때가 있다(음식을 잘게 부수기, 관을 따라 밀어 보내기, 온도에 따라 녹이기 …). 지금 있는 장치(단추, 다리, 상자, 표지, 저울, 꾸밈 그림)로 같은 경험이 되는지 먼저 따져 보고, 안 되면 새 장치를 판에 더한다. 장치는 코드라서 **운영자가 직접 살펴본 뒤에** 실린다. 팩만 보낼 때보다 오래 걸린다고 선생님께 미리 말씀드린다.
+수업 내용이 판에 없는 움직임을 요구할 때가 있다(음식을 잘게 부수기, 관을 따라 밀어 보내기, 온도에 따라 녹이기 …). 지금 있는 장치(단추, 다리, 상자, 표지, 꾸밈 그림, 그래프 공장)로 같은 경험이 되는지 먼저 따져 보고, 안 되면 새 장치를 판에 더한다. 장치는 코드라서 **운영자가 직접 살펴본 뒤에** 실린다. 팩만 보낼 때보다 오래 걸린다고 선생님께 미리 말씀드린다.
 
 ## 먼저 정할 것 (선생님과)
 
@@ -10,16 +10,18 @@
 
 ## 어디를 고치나
 
-저울이 본보기다. 같은 순서로 따라 한다.
+그래프 공장이 본보기다. 장치가 크면 `platform/<장치>/` 폴더 하나에 모으고, 판(`stage.ts`, `sim.ts`, `render.ts`)에서는 그 폴더를 부르기만 한다. 같은 순서로 따라 한다.
 
-| 파일 | 하는 일 | 저울에서 볼 곳 |
+| 파일 | 하는 일 | 그래프 공장에서 볼 곳 |
 |---|---|---|
-| `platform/stage.ts` | legend 의 새 `type` 읽기와 자리 검사. 잘못 적으면 쉬운 한국어로 알려 준다 | `pan`, `bin`, `lever`, `scales` |
-| `platform/sim.ts` | 장치의 상태와 한 걸음의 규칙. 확인 단추로 하는 일은 `actionAt` 에 더한다 | `ScaleState`, `scaleTick`, `actionAt` |
-| `platform/render.ts` | 그리기. 색은 `platform/look.ts` 의 `PALETTE` 와 `platform/sprite.ts` 의 물감만 쓴다 | `drawScale`, `drawBin`, `drawLever` |
-| `tests/<장치>.test.ts` | 규칙마다 시험. 마구 누르는 봇이 못 깨는지, 혼자서는 안 되는지도 | `tests/scale.test.ts`, `tests/scale-play.test.ts` |
-| `kit/STAGE_FORMAT.md` | 선생님의 AI 가 읽는 설명(놓는 법, 값, 움직임, 자리 약속) | '저울' 절 |
-| `packs/etc/tutorial/` | 그 장치만 써 보는 연습 스테이지 하나 | `02 저울 익히기` |
+| `platform/graph/legend.ts` | legend 의 새 `type` 읽기와 자리 검사(`stage.ts` 가 부른다). 잘못 적으면 쉬운 한국어로 알려 준다 | `GRAPH_KEYS`, `parseGraphLegend`, `finishGraph` |
+| `platform/graph/model.ts` | 장치의 상태와 한 걸음의 규칙(화면과 연결을 모르는 순수 계산). 확인 단추로 하는 일도 여기서 정해 `sim.ts` 의 `actionAt` 이 부른다 | `createGraph`, `graphTick`, `graphActionAt`, `applyOrder` |
+| `platform/graph/draw.ts` | 그리기(`render.ts` 가 부른다). 색은 `platform/look.ts` 의 `PALETTE` 와 `platform/sprite.ts` 의 물감만 쓴다 | `drawGrid`, `drawGraphBack`, `drawGraphFront`, `graphHud` |
+| `platform/graph/wire.ts`, `platform/graph/order.ts` | 온라인으로 주고받는 값. 남의 기기에서 온 값은 다시 검사한다 | `cleanOrder` |
+| `src/graph-panel.ts` | 장치에 딸린 창(찍는 방, 손잡이 방) | `openPanel` |
+| `tests/<장치>.test.ts` | 규칙마다 시험. 의도한 풀이로만 깨지는지, 마구 누르는 봇이 못 깨는지도 | `tests/graph-factory.test.ts`, `tests/graph-help.ts`(시험 도우미) |
+| `kit/STAGE_FORMAT.md` | 선생님의 AI 가 읽는 설명(놓는 법, 값, 움직임, 자리 약속) | '그래프 공장' 절 |
+| `packs/etc/tutorial/` | 그 장치만 써 보는 연습 스테이지 하나 | `02 그래프 찍어 들기` |
 
 ## 지킬 것
 
@@ -29,6 +31,8 @@
 - 필요 인원은 숫자보다 `"half"`, `"all"` 처럼 방 인원에 맞춰 풀리는 값으로.
 - 화면 글은 쉬운 한국어, 이모지와 긴 줄표 없이. 판정 문구("정답", "오답")를 쓰지 않고, 틀린 까닭이 화면에서 보이게 한다.
 - 기존 시험이 모두 통과해야 한다(`npm test`). 기존 장치의 움직임을 바꾸지 않는다.
+
+**예외**: 그래프 공장은 운영자 결정(형 지시 2026-11-23)으로 위 약속 두 가지를 넘었다. 식과 숫자를 넣는 창(찍는 방, 손잡이 방)을 열었고, 수식 입력기 MathLive 와 식을 읽는 Compute Engine 을 의존성으로 들였다(그래프 장치가 있는 스테이지에서만 불러오고, 글꼴은 이 사이트에 둔 것만 쓴다). 다른 장치는 그대로 조작은 셋뿐이고 새 의존성을 넣지 않는다. 창이나 의존성이 꼭 필요해 보이면 만들기 전에 운영자에게 먼저 묻는다.
 
 ## 올리기
 

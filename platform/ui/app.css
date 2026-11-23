@@ -245,21 +245,38 @@ body { word-break: keep-all; overflow-wrap: anywhere; }
 .w-gp-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .6rem; }
 .w-gp-fx { font-family: "Galmuri11", monospace; font-weight: 700; color: var(--ar-amber); white-space: nowrap; }
 .w-gp-mf { flex: 1 1 auto; min-width: 0; }
-.w-gp-mf math-field { display: block; width: 100%; font-size: 22px; border: 3px solid #14285F; border-radius: 8px; padding: 4px 8px; background: #F4F7FF; color: #14285F; --caret-color: #E0524F; --selection-background-color: #F5C542; }
+/* 분수를 넣어도 칸 키가 그대로라야 아래 단추가 움직이지 않는다: 분수 한 층이 들어가는 키를 처음부터 잡아 둔다 */
+.w-gp-mf math-field { display: block; width: 100%; min-height: 68px; font-size: 22px; border: 3px solid #14285F; border-radius: 8px; padding: 4px 8px; background: #F4F7FF; color: #14285F; --caret-color: #E0524F; --selection-background-color: #F5C542; }
 .w-gp-mf math-field::part(menu-toggle) { display: none; }
 .w-gp-wait { font-size: .9rem; color: var(--ar-dim); }
 .w-gp-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem; margin-bottom: .6rem; }
 .w-gp-grid label { display: grid; gap: .2rem; font-size: .8rem; color: var(--ar-ink-soft); }
 .w-gp-grid input { width: 100%; min-width: 0; box-sizing: border-box; font: 700 1rem "Galmuri11", monospace; padding: .35rem .4rem; border: 3px solid #14285F; border-radius: 8px; background: #F4F7FF; color: #14285F; }
-.w-gp-views { display: flex; gap: .5rem; align-items: stretch; }
-.w-gp-plane { flex: 1 1 auto; min-width: 0; width: 100%; max-width: 360px; height: auto; border: 3px solid #14285F; border-radius: 8px; image-rendering: auto; }
-.w-gp-lift { margin: 0; flex: 0 0 auto; display: grid; grid-template-rows: 1fr auto; width: 150px; }
-.w-gp-lift canvas { width: 100%; height: auto; border: 3px solid #14285F; border-radius: 8px; }
+/* 두 미리보기는 그림 비율(360:230 · 150:230)대로 칸을 나눠 키가 같고 윗선·아랫선이 맞는다. 늘려 찌그러뜨리지 않는다 */
+.w-gp-views { display: grid; grid-template-columns: minmax(0, 360px); justify-content: center; gap: .5rem; align-items: start; }
+.w-gp-views:has(.w-gp-lift) { grid-template-columns: minmax(0, 360fr) minmax(0, 150fr); justify-content: stretch; }
+.w-gp-plane { display: block; box-sizing: border-box; width: 100%; height: auto; aspect-ratio: 360 / 230; border: 3px solid #14285F; border-radius: 8px; image-rendering: auto; }
+.w-gp-lift { margin: 0; min-width: 0; }
+.w-gp-lift canvas { display: block; box-sizing: border-box; width: 100%; height: auto; aspect-ratio: 150 / 230; border: 3px solid #14285F; border-radius: 8px; }
 .w-gp-lift figcaption { font-size: .75rem; text-align: center; color: var(--ar-ink-soft); padding-top: .2rem; }
-.w-gp-msg { min-height: 1.4em; margin: .5rem 0 0; font-size: .9rem; color: var(--ar-amber); }
+/* 안내 줄은 두 줄 자리를 늘 비워 둔다: 글 길이가 바뀌어도 단추가 제자리에 있다 */
+.w-gp-msg { min-height: calc(2 * 1.45em); margin: .5rem 0 0; font-size: .9rem; line-height: 1.45; color: var(--ar-amber); }
 @media (max-width: 560px) {
   .w-gp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .w-gp-views { flex-direction: column; }
-  .w-gp-lift { width: 100%; grid-template-rows: auto auto; }
-  .w-gp-lift canvas { max-height: 140px; object-fit: contain; }
+  /* 좁은 세로 화면: 좌표평면은 폭 전체, 세워 든 모양은 그 아래 가운데에 비율 그대로 */
+  .w-gp-views:has(.w-gp-lift) { grid-template-columns: minmax(0, 1fr); }
+  .w-gp-lift { display: grid; justify-items: center; }
+  .w-gp-lift canvas { width: auto; height: 112px; }
+}
+/* 낮은 화면(휴대폰 가로): 글·입력은 왼쪽, 미리보기와 단추는 오른쪽에 두어 창 전체가 한 화면에 들어온다 */
+@media (max-height: 520px) {
+  .w-gpanel .lab-modal { width: min(100%, 820px); }
+  .w-gpanel .ar-screen-inner { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto 1fr auto; grid-template-areas: "lead views" "in views" "msg views" "msg act"; column-gap: 1rem; padding: .8rem 1rem; }
+  .w-gpanel .w-gp-lead { grid-area: lead; }
+  .w-gpanel :is(.w-gp-row, .w-gp-grid) { grid-area: in; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 0; }
+  .w-gpanel .w-gp-msg { grid-area: msg; }
+  .w-gpanel .w-gp-views { grid-area: views; display: flex; justify-content: flex-end; }
+  .w-gpanel .w-gp-plane { width: auto; height: 150px; }
+  .w-gpanel .w-gp-lift canvas { width: auto; height: 150px; }
+  .w-root .w-gpanel .lab-actions { grid-area: act; padding-top: .6rem; }
 }

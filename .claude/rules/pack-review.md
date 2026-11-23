@@ -53,6 +53,6 @@
 - 도름스로 보낸 팩의 쪽지는 도름스 서버가 바로 보낸다(이 맥과 무관). GitHub 요청의 쪽지와, 승인된 팩을 바로 싣게 재촉하는 일은 이 맥의 감시 작업(launchd `ai.agent.world-pr-watch`, 3분마다, `~/.config/dorms-world-ops/pr-watch.mjs`)이 한다. 맥이 꺼져 있어도 싣는 작업은 5분마다 스스로 돈다.
 - 검토 화면(`dorms.school/world/review/r-<번호>`)은 긴 번호를 아는 사람이면 열 수 있다. 승인 줄은 결재자(홍창욱, 김태영)에게만 보인다.
 - 실린 팩 이름은 그 선생님 것이다. 같은 선생님이 다시 보내면 고친 판이 되고, 승인하면 실린 팩이 통째로 그 내용으로 바뀐다(그 위에 운영자가 다듬은 것도 덮인다. 그래서 다듬은 뒤에는 꼭 쪽지로 알린다).
-- 지금 저장소에 손으로 넣은 팩 이름(`math/scale-equation`, `etc/tutorial`)은 도름스에서 예약돼 있어 아무도 그 이름으로 못 보낸다. 팩을 손으로 더하면 도름스의 예약 목록(`src/lib/config.ts` 의 `WORLD.RESERVED_PACK_IDS`)에도 적는다.
+- 지금 저장소에 손으로 넣은 팩 이름(`math/graph-factory`, `etc/tutorial`. 예전 `math/scale-equation` 도 예약된 채로 둔다)은 도름스에서 예약돼 있어 아무도 그 이름으로 못 보낸다. 팩을 손으로 더하면 도름스의 예약 목록(`src/lib/config.ts` 의 `WORLD.RESERVED_PACK_IDS`)에도 적는다.
 - 포크에서 온 요청의 Vercel 미리보기 배포를 승인(Authorize)하지 않는다. 남의 설치 스크립트가 빌드에서 돈다.
 - 발행용 비밀값과 방 서버 비밀값은 Vercel 과 GitHub 환경, Cloudflare 에만 있다. 이 저장소와 대화에 적지 않는다.

@@ -94,7 +94,7 @@ async function device(name, { w = 1280, h = 720, touch = false } = {}) {
     open: async (path = '') => { await page.goto(SITE + path, { waitUntil: 'networkidle' }); await page.waitForSelector('.w-root'); },
     room: () => page.evaluate(() => window.__room?.() ?? null),
     net: () => page.evaluate(() => window.__net?.() ?? null),
-    world: () => page.evaluate(() => { const w = window.__world?.(); return w ? { n: w.players.length, xs: w.players.map(p => Math.round(p.x * 10) / 10), ys: w.players.map(p => Math.round(p.y * 10) / 10), colors: w.players.map(p => p.color), carry: w.players.map(p => p.carry?.kind ?? null), inDoor: w.players.map(p => p.inDoor), lines: w.scales.map(s => s.lines), line: w.scales.map(s => s.line), solved: w.scales.map(s => s.solved), tilt: w.scales.map(s => s.tilt), key: [Math.round(w.key.x), Math.round(w.key.y), w.key.holder, w.key.used], open: w.doorOpen, won: w.won, cols: w.stage.cols, hint: w.stage.hint } : null; }),
+    world: () => page.evaluate(() => { const w = window.__world?.(); return w ? { n: w.players.length, xs: w.players.map(p => Math.round(p.x * 10) / 10), ys: w.players.map(p => Math.round(p.y * 10) / 10), colors: w.players.map(p => p.color), inDoor: w.players.map(p => p.inDoor), latex: w.g.factories.map(f => f.latex), pieces: w.g.pieces.map(q => [q.id, q.state, Math.round(q.x), Math.round(q.y)]), done: w.g.done.slice(), active: [...w.active].sort().join(''), key: [Math.round(w.key.x), Math.round(w.key.y), w.key.holder, w.key.used], open: w.doorOpen, won: w.won, cols: w.stage.cols, hint: w.stage.hint } : null; }),
     hold: async (code, ms) => { await page.keyboard.down(code); await sleep(ms); await page.keyboard.up(code); },
     shot: async (tag, kind = 'online') => { mkdirSync(shotDir, { recursive: true }); await sleep(250); await page.screenshot({ path: `${shotDir}${kind}-${tag}-${w}.png` }); },
     close: () => ctx.close(),
@@ -199,41 +199,55 @@ if (baseRun) {
   await B.page.keyboard.up('ArrowRight');
   ok('움직이는 동안 두 화면의 차이는 요약 한두 번 간격 안이다', travelled > 100 && worst < 40, `${Math.round(travelled)}px 달리는 동안 가장 벌어진 때 ${worst.toFixed(1)}px(달리는 빠르기 175px/초, 요약 간격 0.05초 + 늦게 그리기 0.05초)`);
 
-  // ---------- 2. 저울 팩 01 을 두 기기가 양쪽 접시를 맡아 실제 확인 키로 푼다 ----------
+  // ---------- 2. 그래프 공장 01: 손님이 찍는 방·손잡이 방에서 넣고, 방장 화면에 조각이 나온다 ----------
   await A.page.locator('[data-pick]').click();
   await A.page.waitForSelector('[data-stage]');
   ok('방장이 고르는 화면으로 나가면 손님은 기다리는 화면으로 간다', !!(await until(async () => (await B.page.locator('.w-wait').count()) === 1)));
   await A.page.locator('[data-back]').click();
-  await A.page.waitForSelector('[data-open="math/scale-equation"]');
+  await A.page.waitForSelector('[data-open="math/graph-factory"]');
   ok('방에 있는 채로 다른 팩으로 옮겨 간다', (await A.room())?.code === code && (await B.room())?.code === code);
-  await pickStage(A, 'math/scale-equation', 0);
-  await until(async () => (await B.world())?.lines?.length === 1 && (await B.net())?.room?.pack === 'math/scale-equation');
-  const pans = await A.page.evaluate(() => { const w = window.__world(), d = w.stage.scales[0]; return { L: d.pans[0], R: d.pans[1], floor: d.floor, bins: w.stage.bins.map(b => b.x), x: w.scales[0].x, key: w.stage.key, door: w.stage.door }; });
-  const put = (i, x) => A.page.evaluate(([i, x]) => { const w = window.__world(), p = w.players[i]; p.x = x; p.y = w.stage.scales[0].floor - p.h; p.vx = 0; p.vy = 0; }, [i, x]);
-  const lbin = pans.bins.filter(x => x < pans.L.x).pop() + 4, rbin = pans.bins.find(x => x > pans.R.x) + 4;
-  const start = await A.world(), startB = await B.world();
-  ok('같은 씨앗으로 두 화면이 같은 식에서 시작한다', JSON.stringify(start.lines) === JSON.stringify(startB.lines), JSON.stringify(start.lines[0][0]));
+  await pickStage(A, 'math/graph-factory', 0);
+  await until(async () => (await B.world())?.done?.length === 2 && (await B.net())?.room?.pack === 'math/graph-factory');
+  const fac = await A.page.evaluate(() => { const w = window.__world(), f = w.stage.graph.factories[0]; return { press: f.press[0], desk: f.desk[0], slots: w.stage.graph.slots.map(s => [s.ox, s.oy]), key: w.stage.key, door: w.stage.door }; });
+  const put = (i, x) => A.page.evaluate(([i, x]) => { const w = window.__world(), p = w.players[i]; p.x = x; p.y = 390 - p.h; p.vx = 0; p.vy = 0; }, [i, x]);
   const enter = async d => { await d.page.keyboard.press('Enter'); await sleep(140); };
-  let same = true, rounds = 0;
-  for (let guard = 0; guard < 10; guard++) {
-    const cur = await A.world(); if (cur.line[0][1] === 0) break;
-    await put(0, pans.L.x + pans.L.w * 0.7); await put(1, pans.R.x + pans.R.w * 0.7); await sleep(120);
-    await enter(A); await enter(B);                       // 방장은 왼쪽 접시에서, 손님은 오른쪽 접시에서 구슬을 든다
-    if (guard === 0) {                                    // 손님 화면은 요약 한두 번만큼 늦으므로 잠깐 기다려 준다
-      const both = await until(async () => { const [a, b] = await Promise.all([A.world(), B.world()]); return a.carry.join() === 'marble,marble' && b.carry.join() === 'marble,marble'; }, 1000, 40);
-      const [a, b] = await Promise.all([A.world(), B.world()]);
-      ok('든 구슬이 두 화면에 똑같이 보인다', !!both, `방장 화면 ${a.carry} / 손님 화면 ${b.carry}`);
-    }
-    await put(0, lbin); await put(1, rbin); await sleep(120);
-    await enter(A); await enter(B);                       // 통에 버린다
-    await sleep(750);
-    // 줄이 늘 때마다 두 화면을 견준다(손님 화면은 요약 한두 번만큼 늦으므로 잠깐 기다려 준다)
-    if (!(await until(async () => { const [a, b] = await Promise.all([A.world(), B.world()]); return JSON.stringify(a.lines) === JSON.stringify(b.lines) && JSON.stringify(a.line) === JSON.stringify(b.line); }, 1500, 60))) same = false;
-    rounds++;
-  }
-  const solved = await until(async () => { const [a, b] = await Promise.all([A.world(), B.world()]); return a.solved[0] && b.solved[0] ? [a, b] : null; }, 5000);
-  ok('두 기기가 양쪽 접시를 맡아 실제 확인 키로 식을 푼다', !!solved, solved ? `풀이 판 ${JSON.stringify(solved[0].lines[0])} (${rounds}번 덜어 냄, x = ${pans.x})` : JSON.stringify((await A.world()).lines));
-  ok('풀이 판 줄이 두 화면에서 같다(줄이 늘 때마다 견줌)', same && solved && JSON.stringify(solved[0].lines) === JSON.stringify(solved[1].lines) && solved[0].lines[0].length >= 2);
+  // 손님(B)이 찍는 방 앞에서 확인 → 창 → 식 → 엔터
+  await put(1, fac.press.x + 4); await sleep(300);
+  await enter(B);
+  const mfB = await B.page.waitForSelector('math-field', { timeout: 8000 }).then(() => true, () => false);
+  await sleep(300); await B.page.keyboard.type('0'); await sleep(200); await B.page.keyboard.press('Enter');
+  const setF = await until(async () => { const [a, b] = await Promise.all([A.world(), B.world()]); return a.latex[0] === '0' && b.latex[0] === '0'; }, 4000);
+  ok('손님이 찍는 방에서 넣은 식이 방장에게 가고 두 화면 모두 같은 식을 본다', mfB && !!setF, JSON.stringify([(await A.world()).latex, (await B.world()).latex]));
+  // 손님이 손잡이 방에서 점과 범위를 넣고 찍는다
+  await put(1, fac.desk.x + 4); await sleep(300);
+  await enter(B);
+  await B.page.waitForSelector('.w-gpanel input[data-v="x0"]', { timeout: 5000 }).catch(() => {});
+  for (const [k, v] of [['x0', '0'], ['y0', '0'], ['a', '0'], ['b', '3']]) await B.page.fill(`[data-v="${k}"]`, v);
+  await B.page.locator('[data-v="b"]').dispatchEvent('input');
+  await B.page.click('.w-gpanel [data-ok]');
+  const made = await until(async () => { const [a, b] = await Promise.all([A.world(), B.world()]); return a.pieces.length === 1 && b.pieces.length === 1 && a.pieces[0][1] === 'free' && b.pieces[0][1] === 'free' ? [a, b] : null; }, 5000);
+  ok('손님이 손잡이 방에서 넣은 점과 범위로 방장 화면에 조각이 찍혀 나오고 손님 화면에도 보인다', !!made, made ? JSON.stringify(made.map(w => w.pieces)) : JSON.stringify([(await A.world()).pieces, (await B.world()).pieces]));
+  // 홈 위에서 놓으면 맞물린다(들고 가는 길은 시험이 따로 본다): 방장 세계에서 조각을 홈 1 위로 옮겨 떨어뜨린다
+  await A.page.evaluate(([ox]) => { const w = window.__world(), pc = w.g.pieces[0]; pc.state = 'fall'; pc.holders = []; pc.vy = 0; pc.x = ox; pc.y = 300; }, fac.slots[0]);
+  const fit1 = await until(async () => { const [a, b] = await Promise.all([A.world(), B.world()]); return a.done[0] && b.done[0] && b.active.includes('x') ? b : null; }, 4000);
+  ok('홈에 맞은 그래프와 놓인 다리가 손님 화면에도 보인다', !!fit1, JSON.stringify((await B.world())?.done));
+  // 방장(A)도 자기 창으로 둘째 조각(너비 5)을 찍는다
+  await put(0, fac.press.x + 4); await put(1, fac.press.x + 60); await sleep(300);
+  await enter(A);
+  await A.page.waitForSelector('math-field', { timeout: 8000 }).catch(() => {});
+  await sleep(300); await A.page.keyboard.type('0'); await sleep(200); await A.page.keyboard.press('Enter'); await sleep(300);
+  await put(0, fac.desk.x + 4); await sleep(300);
+  await enter(A);
+  await A.page.waitForSelector('.w-gpanel input[data-v="x0"]', { timeout: 5000 }).catch(() => {});
+  for (const [k, v] of [['x0', '0'], ['y0', '0'], ['a', '0'], ['b', '5']]) await A.page.fill(`[data-v="${k}"]`, v);
+  await A.page.locator('[data-v="b"]').dispatchEvent('input');
+  await A.page.click('.w-gpanel [data-ok]');
+  const two = await until(async () => (await B.world()).pieces.length === 2, 4000);
+  ok('방장이 자기 창으로 찍은 조각도 손님 화면에 나온다', !!two);
+  await A.page.evaluate(([ox]) => { const w = window.__world(), pc = w.g.pieces[w.g.pieces.length - 1]; pc.state = 'fall'; pc.holders = []; pc.vy = 0; pc.x = ox; pc.y = 300; }, fac.slots[1]);
+  const fit2 = await until(async () => { const b = await B.world(); return b.done[0] && b.done[1] && b.active === 'xy'; }, 4000);
+  ok('두 홈을 다 메우면 두 다리가 모두 놓인다(두 화면 같음)', !!fit2, JSON.stringify((await B.world())?.active));
+  const pans = { key: fac.key };
   // 다리가 놓였으니 열쇠를 줍고 문으로: 여기부터는 두 기기 모두 실제 방향키와 확인 키만 쓴다
   await put(0, pans.key.x - 80); await put(1, pans.key.x - 120);
   await Promise.all([A.page.keyboard.down('ArrowRight'), B.page.keyboard.down('ArrowRight')]);
@@ -253,7 +267,7 @@ if (baseRun) {
   await enter(A);
   const C = await device('C');
   await C.open(`?room=${code}`);
-  const late = await until(async () => { const [a, c] = await Promise.all([A.world(), C.world()]); return a && c && c.n === 3 && a.n === 3 && near(a.xs, c.xs, 2) && JSON.stringify(a.lines) === JSON.stringify(c.lines) && JSON.stringify(a.line) === JSON.stringify(c.line) ? [a, c] : null; }, 8000);
+  const late = await until(async () => { const [a, c] = await Promise.all([A.world(), C.world()]); return a && c && c.n === 3 && a.n === 3 && near(a.xs, c.xs, 2) && JSON.stringify(a.pieces.map(q => q.slice(0, 2))) === JSON.stringify(c.pieces.map(q => q.slice(0, 2))) && JSON.stringify(a.done) === JSON.stringify(c.done) ? [a, c] : null; }, 8000);
   ok('늦게 들어온 사람도 같은 상태를 본다', !!late, late ? `세 번째 도름이 색 ${late[1].colors[2]}, 자리 ${JSON.stringify(late[1].xs)}` : JSON.stringify([await A.world(), await C.world()]).slice(0, 300));
   ok('세 화면 모두 3명으로 센다', (await A.net()).room.order.join() === '0,1,2' && (await C.net()).myIndex === 2 && (await B.page.locator('[data-count]').first().textContent()) === '3');
 
@@ -389,7 +403,7 @@ if (baseRun) {
     console.log(`       ${label}: ${JSON.stringify(r)}`);
     return r;
   };
-  await pickStage(I, 'math/scale-equation', 4);
+  await pickStage(I, 'math/graph-factory', 4);
   for (const g of crowd) g.timer = setInterval(() => { if (Math.random() < 0.15) g.n++; if (g.ws.readyState === 1) g.ws.send(JSON.stringify({ t: 'p', m: [-1, 0, 1][Math.floor(Math.random() * 3)], j: Math.random() < 0.3 ? 1 : 0, a: Math.random() < 0.1 ? 1 : 0, n: g.n })); }, 33);
   await until(async () => (await I.world())?.n === 30);
   await sleep(1500);
@@ -685,7 +699,7 @@ if ((flag('shots') || flag('only-shots')) && ownRoom) {
     await until(async () => (await T.room()).names.length === 2);
     await T.shot('screen-names', 'teacher'); await S.shot(tag('student-named'), 'teacher'); await P.shot(tag('pad-named'), 'teacher');
     if (w < 1100) await T.page.locator('.w-teach [data-teach-close]').click();
-    await pickStage(T, 'math/scale-equation', 0); await sleep(900);
+    await pickStage(T, 'math/graph-factory', 0); await sleep(900);
     await T.shot('game', 'teacher'); await S.shot(tag('student-game'), 'teacher'); await P.shot(tag('pad-game'), 'teacher');
     await sleep(2600);
     await T.page.evaluate(() => { const wd = window.__world(); wd.doorOpen = true; wd.players.forEach(p => { p.inDoor = true; }); });
@@ -708,7 +722,7 @@ if ((flag('shots') || flag('only-shots')) && ownRoom) {
 if (flag('shots') || flag('only-shots')) {
   for (const [w, h, touch] of [[1440, 900, false], [390, 844, true]]) {
     const P = await device(`공개 방 ${w}`), A = await device(`찍기 ${w}`, { w, h, touch }), B = await device(`찍기 손님 ${w}`, { w, h, touch });
-    await P.open(); const pub = await createRoom(P, { pub: true }); await pickStage(P, 'math/scale-equation', 1);
+    await P.open(); const pub = await createRoom(P, { pub: true }); await pickStage(P, 'math/graph-factory', 1);
     await A.open(); await A.page.waitForSelector(`[data-pub="${pub}"]`, { timeout: 12000 });
     await A.shot('home-entry-public');
     await A.page.locator('#w-code').fill('ab1'); await A.page.getByRole('button', { name: '들어가기', exact: true }).first().click(); await A.shot('note-bad-code');
@@ -717,7 +731,7 @@ if (flag('shots') || flag('only-shots')) {
     const code = await createRoom(A, { shots: '' });
     await A.shot('home-strip');
     await B.open(); await joinByCode(B, code); await B.shot('guest-wait');
-    await A.page.locator('[data-open="math/scale-equation"]').click(); await A.page.waitForSelector('[data-stage]'); await A.shot('pack-in-room');
+    await A.page.locator('[data-open="math/graph-factory"]').click(); await A.page.waitForSelector('[data-stage]'); await A.shot('pack-in-room');
     await A.page.locator('[data-stage]').nth(0).click(); await A.page.waitForFunction(() => !!window.__world); await sleep(700);
     await A.shot('game-host-hud'); await B.shot('game-guest-hud');
     await sleep(6000); await A.shot('game-host-after-hint');

@@ -24,12 +24,12 @@
 
 ## 폴더
 
-- `platform/` 판: 지도 읽기(`stage.ts`), 물리와 장치(`sim.ts`), 저울의 식(`equation.ts`), 글자 그림(`sprite.ts`), 그리기(`render.ts`), 화풍(`look.ts`), 화면 부품(`ui/`), 온라인(`room-rules.ts`, `net.ts`, `sync.ts`)
+- `platform/` 판: 지도 읽기(`stage.ts`), 물리와 장치(`sim.ts`), 그래프 공장(`graph/`: 식 읽기 `expr.ts`, 장치 `model.ts`, 지도 읽기 `legend.ts`, 그리기 `draw.ts`), 글자 그림(`sprite.ts`), 그리기(`render.ts`), 화풍(`look.ts`), 화면 부품(`ui/`), 온라인(`room-rules.ts`, `net.ts`, `sync.ts`)
 - `packs/<교과>/<팩>/` 스테이지 묶음: `pack.json`, `DESIGN.md`, `stages/NN.map.txt`, `stages/NN.json`, `sprites/*.txt`
 - `kit/` 선생님의 AI 가 읽는 하네스: 순서(`skills/coop-game/SKILL.md`), 형식(`STAGE_FORMAT.md`), 그림(`ART_GUIDE.md`), 새 장치(`DEVICE_GUIDE.md`), 설계서 틀(`DESIGN.template.md`)
 - `src/` 화면: 처음 화면, 팩 화면, 게임 화면, 게임 만들기, 요청 검토, 온라인으로 함께 하기와 선생님 방(`online.ts`), 순위 줄(`ranks.ts`)
 - `room-server/` 방 서버(Cloudflare Workers + Durable Objects). 따로 설치하고 따로 올린다(`room-server/README.md`)
-- `tests/` 물리, 저울, 글자 그림, 팩 검사, 봇이 끝까지 깨 보기, 온라인 규칙(방 · 요약 · 연결), 선생님 방 규칙(출입증 · 닉네임 · 순위 · 횟수 제한)
+- `tests/` 물리, 그래프 공장(식 읽기 · 스테이지 풀이), 글자 그림, 팩 검사, 봇이 끝까지 깨 보기, 온라인 규칙(방 · 요약 · 연결), 선생님 방 규칙(출입증 · 닉네임 · 순위 · 횟수 제한)
 - `scripts/` 도름스로 보내기(`submit-pack.mjs`), 승인된 팩 싣기(`publish-approved.mjs`, GitHub Actions 가 돌림), 팩 파일 검사, 화면 찍기, 온라인 끝까지 돌려 보기(`net-check.mjs`)
 
 ```

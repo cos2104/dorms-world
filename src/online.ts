@@ -697,7 +697,8 @@ function drawPad() {
   host.setStop(null);
   host.app.innerHTML = `<main class="arcade-root w-root w-ctl">
     <div class="w-ctl-top">${roomTags()}<span class="w-ctl-gap"></span><span class="w-nick-slot"></span><button class="ar-key ghost" data-own aria-label="내 화면으로 보기">${icon('screen', 17)}<span class="w-hide-s">내 화면으로 보기</span></button><button class="ar-key ghost" data-leave aria-label="방 나가기">${icon('door', 17)}<span class="w-hide-s">방 나가기</span></button></div>
-    <div class="w-ctl-me"><div class="w-ctl-tile" aria-hidden="true"><b class="w-ctl-num"></b></div><p class="w-ctl-name"></p><p class="w-ctl-say" role="status"></p></div>
+    <div class="w-ctl-me"><div class="w-ctl-tile" aria-hidden="true"><b class="w-ctl-num"></b></div><p class="w-ctl-name"></p><p class="w-ctl-say" role="status"></p>
+      <div class="w-ctl-graph" hidden><button class="ar-key ghost" data-gkind="press">${icon('plus', 17)}<span>식 넣기</span></button><button class="ar-key ghost" data-gkind="desk">${icon('target', 17)}<span>손잡이 달기</span></button></div></div>
     <div class="w-ctl-pad"></div>
   </main>`;
   const root = host.app.querySelector<HTMLElement>('.w-ctl')!;
@@ -705,7 +706,17 @@ function drawPad() {
   root.querySelector<HTMLButtonElement>('[data-leave]')!.onclick = leaveRoom;
   root.querySelector<HTMLButtonElement>('[data-own]')!.onclick = () => { link?.setView('play'); refresh(); };
   const send = padSender(p => link?.sendPad(p));
-  let raf = 0, padHost = l.host;
+  let raf = 0, padHost = l.host, gpanel: (() => void) | null = null;
+  // 그래프 공장 스테이지: 조작기에서도 식과 손잡이를 넣는다. 그 방 앞에 서서 누르면 큰 화면(방장)이 받아 찍는다
+  root.querySelectorAll<HTMLButtonElement>('[data-gkind]').forEach(b => b.addEventListener('click', () => {
+    if (gpanel) return;
+    input.pause(true);
+    gpanel = openPanel({
+      host: root, kind: b.dataset.gkind === 'desk' ? 'desk' : 'press', fac: 0, latex: () => '', blind: true,
+      send: order => { if (!link?.open) return '방과 연결이 끊겼어요'; link.sendOrder(order); return ''; },
+      onClose: () => { gpanel = null; input.pause(false); },
+    });
+  }));
   const frame = (now: number) => { raf = requestAnimationFrame(frame); const p = input.read(); if (link?.open && !link.isHost) send(p, now); };
   raf = requestAnimationFrame(frame);
   const paint = () => {
@@ -719,12 +730,14 @@ function drawPad() {
     if (slot.dataset.key !== nb) { slot.dataset.key = nb; slot.innerHTML = nb; slot.hidden = !nb; slot.querySelector<HTMLButtonElement>('[data-nick]')?.addEventListener('click', e => nickDialog('', e.currentTarget as HTMLElement)); }
     const p = k.room.stage >= 0 ? findPack(k.room.pack) : null, st = p?.stages[k.room.stage];
     root.querySelector('.w-ctl-say')!.textContent = st ? `${p!.name} ${String(k.room.stage + 1).padStart(2, '0')} ${st.name}. 큰 화면을 보며 움직여요.` : '방장이 스테이지를 고르고 있어요.';
+    const hasGraph = !!(p && st && p.stageData[k.room.stage]?.graph.factories.length);
+    root.querySelector<HTMLElement>('.w-ctl-graph')!.hidden = !hasGraph;
     updateStrip();
   };
   padScreen = { paint };
   paint();
   shown = 'pad';
-  host.setStop(() => { cancelAnimationFrame(raf); input.dispose(); padScreen = null; if (shown === 'pad') shown = ''; });
+  host.setStop(() => { cancelAnimationFrame(raf); input.dispose(); gpanel?.(); padScreen = null; if (shown === 'pad') shown = ''; });
 }
 
 // ---------- 게임 화면 ----------

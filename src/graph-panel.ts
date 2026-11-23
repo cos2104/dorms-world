@@ -32,6 +32,8 @@ export type PanelOpts = {
   latex: () => string;               // 그 공장의 지금 식(손잡이 방에서 쓴다)
   send: (o: Order) => string;        // 주문을 넣는다. 돌려준 글은 창에 적는다(빈 글이면 닫는다)
   onClose: () => void;
+  /** 조작기(함께 보기)처럼 이 기기에 판이 없을 때: 지금 식을 모르니 미리보기 없이 수만 보내고, 맞는지는 큰 화면이 본다. */
+  blind?: boolean;
 };
 
 const W = 360, H = 230, UNIT = 16;   // 미리보기 한 눈금 16px
@@ -51,7 +53,7 @@ function plane(cv: HTMLCanvasElement, f: Formula | null, a?: number, b?: number,
     c.strokeStyle = color; c.lineWidth = width; c.lineCap = 'round'; c.lineJoin = 'round';
     for (const run of sampleRuns(f, lo, hi, 0.05)) { c.beginPath(); run.forEach(([x, y], i) => { const px = ox + x * UNIT, py = oy - Math.max(-40, Math.min(40, y)) * UNIT; if (i) c.lineTo(px, py); else c.moveTo(px, py); }); c.stroke(); }
   };
-  draw(-11.5, 11.5, 2, 'rgba(20,40,95,0.45)');
+  draw(-11.5, 11.5, 3, PALETTE.outline);
   if (a != null && b != null && b > a) {
     c.fillStyle = 'rgba(245,197,66,0.22)'; c.fillRect(ox + a * UNIT, 0, (b - a) * UNIT, H);
     draw(a, b, 4, PALETTE.navy);
@@ -140,14 +142,20 @@ export function openPanel(o: PanelOpts): () => void {
     }, () => say('식 입력기를 불러오지 못했어요. 새로 고침해 주세요'));
   } else {
     const cur = trustLatex(o.latex()), f = cur ? readFormula(cur) : null;
-    el.querySelector('.w-gp-cur')!.textContent = cur ? `y = ${latexText(cur)}` : '아직 없어요';
+    el.querySelector('.w-gp-cur')!.textContent = cur ? `y = ${latexText(cur)}` : o.blind ? '큰 화면에서 보여요' : '아직 없어요';
     const lift = el.querySelector<HTMLCanvasElement>('.w-gp-lift canvas')!;
     const inputs = [...el.querySelectorAll<HTMLInputElement>('input[data-v]')];
     const val = (k: string) => { const v = inputs.find(i => i.dataset.v === k)!.value.trim(); return v === '' ? NaN : Number(v); };
     const yIn = inputs.find(i => i.dataset.v === 'y0')!;
     const update = () => {
-      if (!f?.ok) { plane(cv, null); lifted(lift, null); say('찍는 방에서 식을 먼저 넣어 주세요'); return null; }
       const x0 = val('x0'), y0 = val('y0'), a = val('a'), b = val('b');
+      if (!f?.ok && o.blind) {
+        plane(cv, null); lifted(lift, null);
+        const bad = rangeProblem(a, b, x0) ?? (Number.isFinite(y0) ? null : '지나는 점의 y 를 적어 주세요');
+        say(bad ?? '큰 화면에서 그래프가 찍혀 나오는지 봐요');
+        return bad ? null : { x0, y0, a, b };
+      }
+      if (!f?.ok) { plane(cv, null); lifted(lift, null); say('찍는 방에서 식을 먼저 넣어 주세요'); return null; }
       plane(cv, f.formula, a, b, Number.isFinite(x0) && Number.isFinite(y0) ? [x0, y0] : undefined);
       const bad = rangeProblem(a, b, x0) ?? (Number.isFinite(y0) ? pointProblem(f.formula, x0, y0) : '지나는 점의 y 를 적어 주세요');
       const shape = bad ? null : makeShape({ latex: cur, a, b, x0 });
