@@ -49,7 +49,7 @@ export function makeScreen(app: HTMLElement, shell: (inner: string, status: stri
         <pre class="w-prompt" tabindex="0" aria-label="안내문">${esc(PROMPT)}</pre>
         <div class="w-make-actions"><button class="ar-key mustard" data-copy>${icon('copy', 17)}<span>안내문 복사</span></button><button class="ar-key ghost" data-copy-url>${icon('copy', 17)}<span>내려받는 주소 복사</span></button></div>
         <p class="ar-kicker w-kicker">필요한 것</p>
-        <ul class="w-notes"><li>내 컴퓨터에서 도는 코딩 AI</li><li>Node.js 와 Git(없으면 AI 가 설치를 도와줘요)</li><li>도름스 계정(교사 인증을 마친 계정)</li></ul>
+        <ul class="w-notes"><li>윈도우 컴퓨터나 맥(어느 쪽이든 똑같이 돼요)</li><li>내 컴퓨터에서 도는 코딩 AI</li><li>Node.js 와 Git(없으면 AI 가 설치를 도와줘요)</li><li>도름스 계정(교사 인증을 마친 계정)</li></ul>
         <p class="ar-kicker w-kicker">알아 둘 것</p>
         <ul class="w-notes"><li>수업 자료는 내 컴퓨터에서 내 AI 가 읽어요. 도름스로 올라가지 않아요.</li><li>내가 쓰는 AI 서비스에는 내용이 전달돼요. 학생 이름, 성적, 연락처가 든 파일은 빼고 주세요.</li><li>가는 것은 팩 폴더의 글 파일(설계서, 지도, 그림)이고, 실릴 때 도름스 닉네임이 함께 보여요. 누구나 볼 수 있으니 학생 이름과 사진은 넣지 마세요.</li><li>그림과 화면 부품은 정해진 물감과 모양으로만 만들어져서, 누가 만들어도 한 게임처럼 보여요.</li></ul>
       </div>

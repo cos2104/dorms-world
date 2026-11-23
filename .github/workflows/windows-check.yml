@@ -1,0 +1,61 @@
+# 윈도우 선생님 컴퓨터에서도 맥과 똑같이 되는지, 선생님이 밟는 순서 그대로 윈도우에서 돌려 본다.
+# 내려받기 → npm i → 개발 서버 → 화면 찍기 → 검사 → 봇으로 깨 보기 → 단원 찾기 → 보내기(보내기 직전까지) → 온라인 방 끝까지.
+# 비밀값을 쓰지 않는다(남이 보낸 코드가 도는 자리다).
+name: 윈도우 확인
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: 내려받은 글 파일이 LF 인지(윈도우 git 은 기본으로 CRLF 로 바꾼다)
+        run: |
+          $crlf = git ls-files --eol | Select-String 'w/crlf'
+          if ($crlf) { $crlf; throw 'CRLF 로 내려받은 파일이 있어요' }
+      - run: npm ci --ignore-scripts
+      - run: npm run check:packs
+      - run: npm test
+      - run: npm run build
+      - run: npm run check:security
+      - run: npm run play:bots -- math/scale-equation --players 8
+      - run: npm run units -- ms1 수학
+      - name: 도름스로 보내기(보내기 직전까지)
+        run: npm run submit -- math/scale-equation --dry-run
+      - name: 개발 서버를 띄우고 화면을 찍는다
+        run: |
+          npx playwright install chromium
+          $dev = Start-Process npm.cmd -ArgumentList 'run','dev','--','--port','5310','--strictPort' -PassThru -NoNewWindow
+          $up = $false
+          for ($i = 0; $i -lt 60 -and -not $up; $i++) { Start-Sleep 1; try { $up = (Invoke-WebRequest http://localhost:5310/world/ -UseBasicParsing).StatusCode -eq 200 } catch {} }
+          if (-not $up) { throw '개발 서버가 뜨지 않았어요' }
+          node scripts/pack-shot.mjs math/scale-equation 2 http://localhost:5310/world/
+          if ($LASTEXITCODE -ne 0) { throw '화면 찍기 실패' }
+          if (-not (Test-Path .shots/pack-math_scale-equation-01-2p-1280.png)) { throw '화면 그림이 없어요' }
+          taskkill /pid $dev.Id /T /F | Out-Null
+      - name: 온라인 방(방 서버 + 브라우저 여러 대) 끝까지
+        run: |
+          npm --prefix room-server ci --ignore-scripts
+          node scripts/net-check.mjs --shots
+          if ($LASTEXITCODE -ne 0) { throw '온라인 확인 실패' }
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-shots
+          path: |
+            .shots/
+            .verify/shots/
+          if-no-files-found: ignore

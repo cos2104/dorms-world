@@ -28,7 +28,7 @@ export type Sprite = { name: string; w: number; h: number; rows: string[] };
 
 /** 글자 그림을 읽는다. 약속에 안 맞으면 어디가 왜 안 맞는지 쉬운 말로 알려 준다. */
 export function parseSprite(text: string, name: string): Sprite {
-  const rows = text.replace(/\r/g, '').split('\n');
+  const rows = text.replace(/^\uFEFF/, '').replace(/\r/g, '').split('\n');
   while (rows.length && !rows[rows.length - 1].trim()) rows.pop();
   if (!rows.length) throw new Error(`그림 "${name}" 이 비어 있어요.`);
   const w = rows[0].length, h = rows.length;

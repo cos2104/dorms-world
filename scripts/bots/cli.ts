@@ -22,7 +22,7 @@ if (!id || !/^[a-z0-9-]{1,40}\/[a-z0-9-]{1,40}$/.test(id)) {
 }
 const dir = join(fileURLToPath(new URL('../../packs/', import.meta.url)), id);
 if (!existsSync(join(dir, 'pack.json'))) { say(`packs/${id}/pack.json 이 없어요. 교과/팩 이름을 확인해 주세요.`); process.exit(2); }
-const meta = JSON.parse(readFileSync(join(dir, 'pack.json'), 'utf8')) as { name: string; players: { min: number; max: number }; stages: { file: string; name: string }[] };
+const meta = JSON.parse(readFileSync(join(dir, 'pack.json'), 'utf8').replace(/^\uFEFF/, '')) as { name: string; players: { min: number; max: number }; stages: { file: string; name: string }[] };
 
 const wantPeople = opt('--players');
 if (wantPeople != null && !/^\d{1,2}$/.test(wantPeople)) { say('--players 에는 2~30 사이 수를 적어 주세요.'); process.exit(2); }

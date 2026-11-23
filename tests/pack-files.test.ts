@@ -39,7 +39,8 @@ describe('팩 파일 검사', () => {
     ['다른 이름의 설정 파일', (p: string) => writeFileSync(join(p, 'data.json'), '{}')],
     ['너무 큰 설계서', (p: string) => writeFileSync(join(p, 'DESIGN.md'), 'x'.repeat(400 * 1024))],
     ['대문자 폴더 이름', (p: string) => { mkdirSync(join(p, '..', 'EVIL')); writeFileSync(join(p, '..', 'EVIL', 'pack.json'), '{}'); }],
-    ['바깥을 가리키는 링크', (p: string) => symlinkSync('/etc/hosts', join(p, 'me.png'))],
+    // 윈도우 일반 계정은 파일 링크를 못 만들어서(관리자만 됨) 누구나 만들 수 있는 폴더 연결(junction)로 같은 것을 본다
+    ['바깥을 가리키는 링크', (p: string) => process.platform === 'win32' ? symlinkSync(tmpdir(), join(p, 'me.png'), 'junction') : symlinkSync('/etc/hosts', join(p, 'me.png'))],
     ['폴더 밖을 가리키는 스테이지 이름', (p: string) => writeFileSync(join(p, 'pack.json'), JSON.stringify({ stages: [{ file: '../../x' }], creator: { avatar: null } }))],
     ['폴더 밖을 가리키는 프로필 그림', (p: string) => writeFileSync(join(p, 'pack.json'), JSON.stringify({ stages: [{ file: '01' }], creator: { avatar: '../../a.png' } }))],
   ])('%s 는 막고, 아무것도 실행하지 않는다', (_name, extra) => {

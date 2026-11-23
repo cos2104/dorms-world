@@ -105,7 +105,7 @@ const pickSprite = (sprites: Record<string, Sprite>, name: unknown): Sprite | un
 
 /** sprites: 그 팩의 글자 그림(이름 → 그림). 스테이지가 그림을 쓰면 여기서 찾는다. */
 export function parseStage(mapText: string, json: StageJson = {}, sprites: Record<string, Sprite> = {}): Stage {
-  const lines = mapText.replace(/\r/g, '').split('\n').filter((l, i, a) => l.length > 0 || (i > 0 && i < a.length - 1));
+  const lines = mapText.replace(/^\uFEFF/, '').replace(/\r/g, '').split('\n').filter((l, i, a) => l.length > 0 || (i > 0 && i < a.length - 1));
   while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
   if (!lines.length) throw new Error('지도가 비어 있어요.');
   const cols = lines[0].length, rows = lines.length;

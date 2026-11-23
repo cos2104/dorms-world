@@ -7,6 +7,8 @@
 
 ## 선생님이 게임을 만들 때
 
+윈도우와 맥에서 똑같이 돼요. 명령도 순서도 같고, 윈도우에서는 PowerShell(또는 코딩 AI 가 쓰는 터미널)에서 돌려요. 윈도우에서 끝까지 되는지는 요청마다 GitHub 의 윈도우 컴퓨터가 같은 순서로 돌려 확인해요(`.github/workflows/windows-check.yml`).
+
 내 컴퓨터에서 도는 코딩 AI(Claude Code, Codex 등)에 `kit/COPY_PROMPT.md` 의 안내문을 붙여 넣으세요. AI 가 이 저장소를 내려받고, 게임을 내 컴퓨터에 띄우고, 수업 자료를 물은 뒤 아이디어부터 도름스로 보내기까지 함께 해요.
 
 | 순서 | 하는 일 |
@@ -76,7 +78,8 @@ npm run submit -- <교과>/<팩>   # 도름스로 보내기
 ```
 npm --prefix room-server i                      # 처음 한 번(wrangler)
 npm --prefix room-server run dev                # 방 서버를 이 컴퓨터에 띄운다(로그인 필요 없음, http://localhost:8787)
-VITE_ROOM_URL=http://localhost:8787 npm run dev # 또는 .env.development.local 에 같은 줄(커밋하지 않는다)
+VITE_ROOM_URL=http://localhost:8787 npm run dev # 맥·리눅스. 또는 .env.development.local 에 같은 줄(커밋하지 않는다)
+$env:VITE_ROOM_URL='http://localhost:8787'; npm run dev   # 윈도우 PowerShell
 node scripts/net-check.mjs --shots              # 방 서버와 개발 서버를 스스로 띄워 브라우저 여러 대로 끝까지 돌려 본다
 ```
 

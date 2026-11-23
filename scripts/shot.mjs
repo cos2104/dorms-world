@@ -1,5 +1,10 @@
 // 화면 확인용: node scripts/shot.mjs <주소> <저장이름> [가로] [세로] [단계...]
 import { chromium } from 'playwright';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+const SHOTS = join(fileURLToPath(new URL('..', import.meta.url)), '.shots');   // 윈도우·맥 어디서나 이 저장소의 .shots
+mkdirSync(SHOTS, { recursive: true });
 const [url, name, w = '1440', h = '900', ...steps] = process.argv.slice(2);
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: +w, height: +h }, deviceScaleFactor: 1, hasTouch: +w < 600, isMobile: +w < 600 });
@@ -17,6 +22,6 @@ for (const s of steps) {
   else if (kind === 'eval') await page.evaluate(arg);
 }
 await page.waitForTimeout(800);
-await page.screenshot({ path: `${process.env.HOME}/dorms-world/.shots/${name}.png` });
+await page.screenshot({ path: join(SHOTS, `${name}.png`) });
 console.log('errors', errors.length ? errors.slice(0, 6).join('\n') : 'none');
 await browser.close();

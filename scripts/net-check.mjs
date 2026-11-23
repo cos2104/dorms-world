@@ -6,7 +6,7 @@
 //   --room-port <번호> --site-port <번호> 로 스스로 띄우는 서버의 포트를 바꾼다(방 서버 번호 + 1 에는 도름스 흉내 서버가 뜬다).
 // 브라우저 실행 파일은 PW_CHROME 으로 준다. 방 서버는 room-server/ 에서 npm i 를 한 번 해 두어야 한다.
 // 선생님 방(출입증 · 닉네임 · 순위 · 쓰임 알림)과 주소마다의 횟수 제한은 방 서버를 스스로 띄울 때만 본다(시험용 비밀값과 흉내 서버 주소를 넣어 띄운다).
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdirSync } from 'node:fs';
@@ -29,8 +29,13 @@ for (const [name, v] of [['site', SITE], ['room', ROOM]]) if (v && !/^http:\/\/(
 const kids = [];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function waitFor(url, what) { for (let i = 0; i < 120; i++) { try { const r = await fetch(url); if (r.status < 500) return; } catch { /* 아직 */ } await sleep(500); } throw new Error(`${what} 가 뜨지 않았어요: ${url}`); }
+const win = process.platform === 'win32';
 function up(cmd, argv, cwd, env = {}) {
-  const k = spawn(cmd, argv, { cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+  // 윈도우의 node_modules/.bin 은 .cmd 파일이라 셸을 거쳐야 돈다. 끌 때도 셸 아래 자식까지 함께 끈다
+  const k = win
+    ? spawn(`"${cmd}.cmd"`, argv, { cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], shell: true })
+    : spawn(cmd, argv, { cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+  if (win) { const pid = k.pid; k.kill = () => { Object.defineProperty(k, 'killed', { value: true, configurable: true }); try { spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' }); } catch { /* 이미 꺼짐 */ } return true; }; }
   let out = ''; k.stdout.on('data', d => { out += d; }); k.stderr.on('data', d => { out += d; });
   k.on('exit', code => { if (code && !k.killed) console.error(`${cmd} 가 꺼졌어요(${code})\n${out.slice(-800)}`); });
   kids.push(k); return k;

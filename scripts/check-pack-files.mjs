@@ -2,8 +2,10 @@
 // 팩 검사(vitest)와 빌드의 맨 앞에서 돈다: node scripts/check-pack-files.mjs [packs 폴더]
 import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = resolve(process.argv[2] ?? new URL('../packs/', import.meta.url).pathname);
+// .pathname 은 윈도우(C:\…)와 한글 폴더에서 틀린 경로가 된다. fileURLToPath 로 바꾼다
+const root = resolve(process.argv[2] ?? fileURLToPath(new URL('../packs/', import.meta.url)));
 const problems = [];
 const NAME = /^[a-z0-9-]{1,40}$/;   // 교과·팩 폴더 이름은 40자까지(도름스로 보내는 길과 같은 한도)
 const STAGE = /^\d{2}\.(json|map\.txt)$/;
@@ -49,7 +51,7 @@ for (const fam of entries(root)) {
     if (!hasMeta) { problems.push(`${where}: pack.json 이 없어요.`); continue; }
     // pack.json 이 가리키는 파일 이름도 팩 폴더 밖으로 나가지 못하게 모양을 본다(글자로만 읽는다).
     try {
-      const meta = JSON.parse(readFileSync(join(pack.path, 'pack.json'), 'utf8'));
+      const meta = JSON.parse(readFileSync(join(pack.path, 'pack.json'), 'utf8').replace(/^\uFEFF/, ''));
       for (const s of Array.isArray(meta.stages) ? meta.stages : []) if (typeof s?.file !== 'string' || !/^\d{2}$/.test(s.file)) problems.push(`${where}/pack.json: stages 의 file 은 "01" 같은 두 자리 숫자여야 해요.`);
       const av = meta.creator?.avatar;
       if (av != null && (typeof av !== 'string' || !PIC.test(av))) problems.push(`${where}/pack.json: avatar 는 팩 폴더 안의 png·webp 파일 이름이어야 해요.`);

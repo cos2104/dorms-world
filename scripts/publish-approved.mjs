@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 // 비밀값이 가는 곳은 도름스 하나다. 시험할 때만(따로 켜서) 다른 주소를 쓴다
 const ORIGIN = process.env.DORMS_ORIGIN && process.env.DORMS_ALLOW_CUSTOM_ORIGIN === '1' ? process.env.DORMS_ORIGIN.replace(/\/+$/, '') : 'https://dorms.school';
@@ -168,4 +169,4 @@ async function main() {
   }
   if (bad) process.exitCode = 1;
 }
-if (import.meta.url === `file://${process.argv[1]}`) await main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();   // 윈도우 경로(C:\…)도 맞게 비교한다
