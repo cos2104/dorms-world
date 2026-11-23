@@ -280,3 +280,8 @@ body { word-break: keep-all; overflow-wrap: anywhere; }
   .w-gpanel .w-gp-lift canvas { width: auto; height: 150px; }
   .w-root .w-gpanel .lab-actions { grid-area: act; padding-top: .6rem; }
 }
+/* 휴대폰 식 자판이 덮은 높이(--gp-kbd, 창 코드가 잰다)만큼 아래 자리를 더 두어 단추까지 밀어 올려 볼 수 있게 한다 */
+.w-gpanel { padding-bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--gp-kbd, 0px)); scroll-padding-bottom: var(--gp-kbd, 0px); }
+/* 자판으로 자리가 줄어 창이 넘칠 때 가운데 맞춤이 창 윗부분을 화면 위로 밀어내지 않게(위로 넘친 곳은 끌어 볼 수 없다) */
+.w-gpanel { place-items: start center; }
+.w-gpanel > .lab-modal { margin-block: auto; }

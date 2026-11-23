@@ -10,11 +10,14 @@ const N = PALETTE.navy, Y = PALETTE.key, BL = PALETTE.outline;
 
 /** 화면에 보일 식: canonLatex 가 만든 LaTeX 를 읽기 쉬운 글로. 알아보지 못한 명령은 지운다. */
 export function latexText(latex: string): string {
-  let s = latex;
-  for (let k = 0; k < 6; k++) s = s.replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, (_, a, b) => `${wrap(a)}/${wrap(b)}`);
-  s = s.replace(/\\sqrt\{([^{}]*)\}/g, (_, a) => `√${wrap(a)}`)
-    .replace(/\^\{(\d)\}/g, (_, d) => '⁰¹²³⁴⁵⁶⁷⁸⁹'[+d])
-    .replace(/\^\{([^{}]*)\}/g, (_, a) => `^${wrap(a)}`)
+  // 안쪽부터 푼다: 한 자리 지수 → 제곱근 → 분수(여러 겹이면 되풀이)
+  let s = latex.replace(/\^\{(\d)\}/g, (_, d) => '⁰¹²³⁴⁵⁶⁷⁸⁹'[+d]);
+  for (let k = 0; k < 6; k++) {
+    s = s.replace(/\\sqrt\{([^{}]*)\}/g, (_, a) => `√${wrap(a)}`)
+      .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, (_, a, b) => `${wrap(a)}/${wrap(b)}`)
+      .replace(/\^\{([^{}]*)\}/g, (_, a) => `^${wrap(a)}`);
+  }
+  s = s
     .replace(/\\cdot\s*/g, '·').replace(/\\times\s*/g, '×').replace(/\\pi/g, 'π')
     .replace(/\\left|\\right/g, '').replace(/\\(sin|cos|tan|ln|log|exp|sec|csc|cot|arcsin|arccos|arctan|sinh|cosh|tanh)/g, '$1')
     .replace(/\\operatorname\{([a-z]+)\}/g, '$1').replace(/\\[a-zA-Z]+/g, '').replace(/[{}]/g, '');

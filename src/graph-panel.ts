@@ -103,7 +103,8 @@ export function openPanel(o: PanelOpts): () => void {
   const msg = el.querySelector<HTMLElement>('.w-gp-msg')!, cv = el.querySelector<HTMLCanvasElement>('.w-gp-plane')!;
   const say = (t: string) => { msg.textContent = t; };
   let closed = false;
-  const close = () => { if (closed) return; closed = true; window.removeEventListener('keydown', onKey, true); el.remove(); o.onClose(); };
+  let offKbd = () => undefined as void;
+  const close = () => { if (closed) return; closed = true; window.removeEventListener('keydown', onKey, true); offKbd(); el.remove(); o.onClose(); };
   const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
   window.addEventListener('keydown', onKey, true);
   el.querySelector<HTMLButtonElement>('[data-close]')!.onclick = close;
@@ -135,10 +136,27 @@ export function openPanel(o: PanelOpts): () => void {
       mf.smartFence = true;
       const cur = trustLatex(o.latex()); if (cur) mf.value = cur;   // 수식으로 다시 쓴 것만 넣는다
       mf.addEventListener('input', update);
-      mf.addEventListener('keydown', (e: KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+      // 실제 엔터와 화면 수식 자판의 줄바꿈 키 둘 다 제출한다. 자판 키는 keydown 없이 change 만 내므로 change 도 받되,
+      // 칸에서 나가며(blur) 오는 change 와 엔터 직후 겹쳐 오는 change 는 빼서 두 번 보내지 않는다
+      let sentAt = 0;
+      const field = mf;
+      const once = () => { if (performance.now() - sentAt < 400) return; sentAt = performance.now(); submit(); };
+      field.addEventListener('keydown', (e: KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); once(); } });
+      field.addEventListener('change', () => { if (document.activeElement === field || field.contains(document.activeElement)) once(); });
       el.querySelector('.w-gp-mf')!.replaceChildren(mf);
       update();
       setTimeout(() => mf?.focus(), 30);
+      // 휴대폰의 식 자판은 화면 아래를 덮는다. 덮인 높이만큼 창 아래에 자리를 더 두고, 식 칸이 자판 위에 보이게 끌어올린다
+      const vk = (window as unknown as { mathVirtualKeyboard?: EventTarget & { visible: boolean; boundingRect: DOMRect } }).mathVirtualKeyboard;
+      if (vk) {
+        const fit = () => {
+          const h = vk.visible ? Math.round(vk.boundingRect.height) : 0;
+          el.style.setProperty('--gp-kbd', `${h}px`);
+          if (h && mf) requestAnimationFrame(() => mf?.scrollIntoView({ block: 'nearest' }));
+        };
+        vk.addEventListener('geometrychange', fit);
+        offKbd = () => vk.removeEventListener('geometrychange', fit);
+      }
     }, () => say('식 입력기를 불러오지 못했어요. 새로 고침해 주세요'));
   } else {
     const cur = trustLatex(o.latex()), f = cur ? readFormula(cur) : null;
