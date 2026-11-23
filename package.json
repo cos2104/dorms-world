@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@cortex-js/compute-engine": "^0.35.6",
-    "mathlive": "^0.109.1",
+    "mathlive": "^0.111.4",
     "qrcode-generator": "^2.0.4"
   }
 }
