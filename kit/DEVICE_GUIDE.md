@@ -35,7 +35,7 @@ export default counter;
 
 지킬 것(검사 `tests/behaviors-rules.test.ts` 가 문법 나무로 먼저 거르고, 운영자가 병합할 때 한 줄씩 다시 읽는다. 이 검사 파일과 `platform/behavior.ts` 는 요청이 고칠 수 없다)
 - `import type { Behavior } from '../behavior'` 말고는 가져다 쓰지 않는다. 맨 위에는 const, function, export default 만 둔다.
-- 바깥과 주고받는 코드(fetch 등), 화면·저장소에 손대는 코드(window, document, localStorage), 시간과 난수(Date, Math.random), `new`, 정규식, `[ ]` 로 글자를 넣어 속성 고르기를 쓰지 않는다. 같은 입력이면 같은 결과여야 방장이 바뀌어도 이어진다.
+- 바깥과 주고받는 코드(fetch 등), 화면·저장소에 손대는 코드(window, document, localStorage), 시간과 난수(Date, Math.random), `new`, 정규식, `[ ]` 로 속성 고르기(`ctx.vars[0]`~`ctx.vars[3]` 처럼 숫자로 칸을 고르는 것만 된다)를 쓰지 않는다. `ctx` 라는 이름은 움직임 함수의 첫 매개변수로만 쓴다. 같은 입력이면 같은 결과여야 방장이 바뀌어도 이어진다.
 - 반복은 `for (let k = 0; k < 10; k++)` 처럼 횟수를 정한다(while, 끝 조건 없는 for 는 판을 멈춘다).
 - `use` 가 아무것도 안 했으면 `false` 를 돌려준다(그 누름이 옆의 다른 장치로 간다). 도름이는 사본이라 `vy` 만 바꿀 수 있고, 옮기려면 `ctx.respawn`·`ctx.launch` 를 쓴다.
 - 다른 교과에서도 쓸 수 있는 이름으로 짓는다(`stomach` 대신 `grinder`). 그림은 팩의 글자 그림으로 갈아 끼우게 둔다.

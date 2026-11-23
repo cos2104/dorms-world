@@ -52,8 +52,14 @@ export function problems(src: string): string[] {
     if (ts.isComputedPropertyName(n)) out.push(`${line(n)}줄: [ ] 로 이름을 만드는 속성은 쓸 수 없어요`);
     // [ ] 로 고르는 것은 숫자 칸(ctx.vars[k], 배열[0])만. 변수에 담은 글자로 속성을 고르는 우회를 막는다
     const ctxVars = (e: ts.Expression) => ts.isPropertyAccessExpression(e) && e.name.text === 'vars' && ts.isIdentifier(e.expression) && e.expression.text === 'ctx';
-    if (ts.isElementAccessExpression(n) && !ctxVars(n.expression))
-      out.push(`${line(n)}줄: [ ] 로는 ctx.vars 의 칸(ctx.vars[0] 같은 것)만 고를 수 있어요. 속성은 점(.)으로 이름을 적어 주세요`);
+    const slot = (e: ts.Expression) => ts.isNumericLiteral(e) && /^[0-3]$/.test(e.text);
+    if (ts.isElementAccessExpression(n) && !(ctxVars(n.expression) && slot(n.argumentExpression)))
+      out.push(`${line(n)}줄: [ ] 로는 ctx.vars 의 네 칸을 숫자로만(ctx.vars[0] ~ ctx.vars[3]) 고를 수 있어요. 속성은 점(.)으로 이름을 적어 주세요`);
+    // ctx 는 판이 건네는 손잡이 이름이다. 다른 값을 ctx 라고 다시 이름 붙이지 못하게 한다(함수의 매개변수로만)
+    if ((ts.isVariableDeclaration(n) || ts.isBindingElement(n) || ts.isFunctionDeclaration(n)) && n.name && ts.isIdentifier(n.name) && n.name.text === 'ctx')
+      out.push(`${line(n)}줄: ctx 라는 이름은 움직임 함수의 첫 매개변수로만 써요`);
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(n.left) && n.left.text === 'ctx')
+      out.push(`${line(n)}줄: ctx 에 다른 값을 넣을 수 없어요`);
     if (ts.isMetaProperty(n) || n.kind === ts.SyntaxKind.ImportKeyword && !ts.isImportDeclaration(n.parent)) out.push(`${line(n)}줄: import.meta 나 import() 는 쓸 수 없어요`);
     if (ts.isWhileStatement(n) || ts.isDoStatement(n) || (ts.isForStatement(n) && !n.condition)) out.push(`${line(n)}줄: while, do, 끝 조건 없는 for 는 쓸 수 없어요(판이 멈출 수 있어요). for (let k = 0; k < 10; k++) 처럼 횟수를 정해 주세요`);
     if (ts.isNewExpression(n)) out.push(`${line(n)}줄: new 로 무언가를 만들 수 없어요`);
@@ -103,5 +109,8 @@ describe('검사 그물이 실제로 거른다', () => {
     ['글자로 적은 금지 이름', "const k = 'constructor';"],
     ['ctx 가 아닌 vars 고르기', "const f = (o: any, k: number) => o.vars[k];"],
     ['this', "function t(this: any) { return this; }"],
+    ['ctx 다시 정의 뒤 변수 칸', "const f = (x: any) => { const ctx = { vars: x.isOn }; const k = 'con' + 'struc' + 'tor'; return ctx.vars[k]; };"],
+    ['ctx.vars 변수 칸', "const f = (ctx: any, k: number) => ctx.vars[k];"],
+    ['ctx 에 대입', "const f = (ctx: any, x: any) => { ctx = x; };"],
   ])('%s 은 걸린다', (_, src) => { expect(problems(src).length).toBeGreaterThan(0); });
 });
