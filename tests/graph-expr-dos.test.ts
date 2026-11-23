@@ -7,6 +7,7 @@ const evil = [
   '-x'.repeat(70), '-(-('.repeat(15) + 'x', '\\left|'.repeat(20) + 'x', '-\\cdot'.repeat(25) + 'x', '\\pm'.repeat(40) + 'x',
   '\\sin\\sin'.repeat(18) + 'x', 'x^{'.repeat(30) + 'x' + '}'.repeat(30), '\\frac{'.repeat(15) + '1}{2}'.repeat(15),
   '-|x'.repeat(40), '\\vert'.repeat(30) + 'x', '\\lvert'.repeat(25) + 'x', '-{}'.repeat(50) + 'x', '{-}'.repeat(50) + 'x', '-~'.repeat(70) + 'x',
+  '-\\phantom{}'.repeat(15) + 'x', '-\\kern1mu'.repeat(15) + 'x', '-\\/'.repeat(40) + 'x', '-\\hspace{0}'.repeat(12) + 'x', '\u2223'.repeat(40) + 'x', '\uff5c'.repeat(40) + 'x', '-\\text{}'.repeat(15) + 'x', '-\\mathrm{}'.repeat(15) + 'x', '-\\enskip'.repeat(20) + 'x',
   '\\mid'.repeat(35) + 'x', '\\|'.repeat(60) + 'x', '-\\,'.repeat(50) + 'x', '-\\quad'.repeat(25) + 'x', '\\times'.repeat(25) + 'x', '/'.repeat(150) + 'x', '^'.repeat(150) + 'x', '!'.repeat(150) + 'x', '*'.repeat(150) + 'x', '\\cdot'.repeat(30) + 'x', '\\left(-'.repeat(20) + 'x', '(-'.repeat(30) + 'x' + ')'.repeat(30), '2'.repeat(158), '\\sqrt{'.repeat(30) + 'x' + '}'.repeat(30),
 ];
 
@@ -19,7 +20,7 @@ describe('수식 해석 시간 상한', () => {
     });
   }
   it('보통 식은 그대로 읽힌다', () => {
-    for (const s of ['-x', 'x-\\left(-x\\right)', '\\left|x\\right|-\\left|x-2\\right|', '\\sin\\left(x\\right)+\\cos\\left(2x\\right)', '-\\frac{x^{2}}{4}+3', '0.5x^{2}-x+1'])
+    for (const s of ['-x', 'x-\\left(-x\\right)', '\\left|x\\right|-\\left|x-2\\right|', '\\sin\\left(x\\right)+\\cos\\left(2x\\right)', '-\\frac{x^{2}}{4}+3', '0.5x^{2}-x+1', '\\lfloor x\\rfloor', '\\sqrt{x+4}', '\\ln\\left(x+1\\right)', '\\exp\\left(x\\right)', '\\frac{1}{x}', '\\operatorname{sgn}\\left(x\\right)', '\\tan\\left(x\\right)', '2\\cdot x'])
       expect(readFormula(s).ok, s).toBe(true);
   });
 });

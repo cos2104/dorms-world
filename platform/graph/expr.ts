@@ -414,6 +414,12 @@ function ser(n: Node): string {
 
 let engine: ComputeEngine | null = null;
 
+const CMD_OK = new Set([
+  'frac', 'sqrt', 'sin', 'cos', 'tan', 'sec', 'csc', 'cot', 'arcsin', 'arccos', 'arctan', 'sinh', 'cosh', 'tanh',
+  'ln', 'log', 'exp', 'pi', 'cdot', 'times', 'div', 'operatorname', 'lfloor', 'rfloor', 'lceil', 'rceil',
+  'vert', 'lvert', 'rvert', 'mid', 'pm', 'mp', 'max', 'min', 'exponentialE', 'mathrm', 'infty',
+]);
+
 /** 여는 괄호와 닫는 괄호가 짝이 맞는지(닫는 것이 먼저 나오거나 덜 닫히면 false). */
 function bracketsBalanced(t: string): boolean {
   const st: string[] = [];
@@ -441,6 +447,9 @@ export function readFormula(latex: string): { ok: true; formula: Formula } | { o
   }
   if (deepest > DEPTH_MAX) return { ok: false, reason: MSG.complex };
   if (open !== 0 || !bracketsBalanced(clean)) return { ok: false, reason: MSG.incomplete };
+  // 해석기에 넘길 수 있는 명령은 허용 목록에 있는 것뿐이다. 모르는 명령·글자(보이지 않는 띄움, 막대처럼 생긴 유니코드)로 아래 검사를 돌아가지 못하게
+  if (/[^\x20-\x7e]/.test(clean)) return { ok: false, reason: MSG.symbol };
+  for (const m of clean.matchAll(/\\([a-zA-Z]+|.)/g)) if (!CMD_OK.has(m[1])) return { ok: false, reason: MSG.symbol };
   // 수식 해석기는 부호·절댓값 막대가 줄지어 나오면 시간이 기하급수로 늘어난다(짧은 글 하나로 판이 멈춘다).
   // 그래서 해석기에 넘기기 전에 값싸게 훑어 막는다. 실제 식에는 +·- 가 셋 넘게 붙거나 | 가 여섯 넘게 나오지 않는다.
   // 띄움 명령·빈 묶음·물결(~)은 지우고, 막대를 뜻하는 명령은 모두 | 로 바꿔 센다(\vert·{-}{-} 로 돌아가지 못하게)
