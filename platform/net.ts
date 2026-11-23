@@ -94,7 +94,7 @@ export class RoomLink {
     ws.onmessage = e => { if (ws === this.ws && typeof e.data === 'string') this.read(e.data); };
     ws.onclose = e => { if (ws === this.ws) this.closed(e.code); };
     // 보통은 닫힘 사건이 뒤따라 오지만, 붙지도 못한 연결에는 오지 않는 곳도 있어 잠깐 기다렸다 닫힌 것으로 친다
-    ws.onerror = () => { this.timers.push(setTimeout(() => { if (ws === this.ws && ws.readyState !== 1) this.closed(1006); }, 80)); };
+    ws.onerror = () => { this.later(() => { if (ws === this.ws && ws.readyState !== 1) this.closed(1006); }, 80); };
   }
 
   private read(text: string) {
@@ -225,7 +225,13 @@ export class RoomLink {
     this.tries++;
     this.remake = false;
     this.ev.retry?.(this.tries);
-    this.timers.push(setTimeout(() => { if (!this.done) this.connect(this.me < 0 && !!this.opts.create); }, wait));
+    this.later(() => { if (!this.done) this.connect(this.me < 0 && !!this.opts.create); }, wait);
+  }
+
+  /** 잠깐 뒤에 할 일. 끝난 타이머는 목록에서 빼서, 오래 끊겼다 붙었다 해도 목록이 쌓이지 않게 한다. */
+  private later(fn: () => void, ms: number) {
+    const t = setTimeout(() => { this.timers = this.timers.filter(x => x !== t); fn(); }, ms);
+    this.timers.push(t);
   }
 
   private fail(why: Down) {
@@ -236,6 +242,7 @@ export class RoomLink {
   private stop() {
     this.done = true; this.open = false;
     for (const t of this.timers) clearTimeout(t);
+    this.timers = [];
     if (this.passTimer) { clearTimeout(this.passTimer); this.passTimer = null; }
     if (this.beat) { clearInterval(this.beat); this.beat = null; }
     const ws = this.ws; this.ws = null;

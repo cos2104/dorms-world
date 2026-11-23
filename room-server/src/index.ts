@@ -13,7 +13,7 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 import { validRoomCode } from '../../platform/room-code';
-import { CLOSE, Gate, PublicList, RoomCore, dormsUrl, ipKey, originAllowed, readJoinQuery, readRankReply, verifyPass, type PublicRoom, type RankReport, type Saved } from '../../platform/room-rules';
+import { CLOSE, Gate, LIMITS, PublicList, RoomCore, dormsUrl, ipKey, originAllowed, readJoinQuery, readRankReply, verifyPass, type PublicRoom, type RankReport, type Saved } from '../../platform/room-rules';
 
 export interface Env {
   ROOM: DurableObjectNamespace<Room>;
@@ -124,9 +124,10 @@ export class Room extends DurableObject<Env> {
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    if (typeof message !== 'string') return;                         // 글이 아닌 것은 받지 않는다
+    // 글이 아닌 것(바이너리)도 빈도와 크기 검사는 똑같이 거친다. 같은 크기의 빈 글로 바꿔 넘기면 세어지고, 크면 끊기고, 읽히지는 않는다
+    const text = typeof message === 'string' ? message : ' '.repeat(Math.min(message.byteLength, LIMITS.snap + 1));
     const saved = ws.deserializeAttachment() as Saved | null;
-    if (saved) this.core.message(saved.seat, saved.key, message, Date.now());
+    if (saved) this.core.message(saved.seat, saved.key, text, Date.now());
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string) {
