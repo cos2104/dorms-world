@@ -2,8 +2,9 @@
 // 팩 검사(vitest)와 빌드의 맨 앞에서 돈다: node scripts/check-pack-files.mjs [packs 폴더]
 import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = resolve(process.argv[2] ?? new URL('../packs/', import.meta.url).pathname);
+const root = resolve(process.argv[2] ?? fileURLToPath(new URL('../packs/', import.meta.url)));
 const problems = [];
 const NAME = /^[a-z0-9-]{1,40}$/;   // 교과·팩 폴더 이름은 40자까지(도름스로 보내는 길과 같은 한도)
 const STAGE = /^\d{2}\.(json|map\.txt)$/;
