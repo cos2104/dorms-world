@@ -21,7 +21,7 @@ const tryRun = (cmd, args) => { const r = spawnSync(cmd, args, { encoding: 'utf8
 if (!/^[a-z0-9-]+\/[a-z0-9-]+$/.test(id)) stop('어느 팩을 올릴지 적어 주세요. 예: npm run submit -- science/digestion');
 const dir = `packs/${id}`;
 if (!existsSync(join(dir, 'pack.json'))) stop(`${dir}/pack.json 이 없어요. 팩 폴더 이름을 확인해 주세요.`);
-const meta = JSON.parse(readFileSync(join(dir, 'pack.json'), 'utf8'));
+const meta = JSON.parse(readFileSync(join(dir, 'pack.json'), 'utf8').replace(/^\uFEFF/, ''));
 if (meta.id !== id) stop(`pack.json 의 id("${meta.id}")가 폴더 이름(${id})과 달라요.`);
 
 // 1. 검사(통과해야 올린다)

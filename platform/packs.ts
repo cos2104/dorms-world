@@ -33,7 +33,7 @@ export function buildPack(meta: PackJson, file: (path: string) => string | undef
   const stageData = meta.stages.map(s => {
     if (!/^\d{2}$/.test(String(s.file))) throw new Error('스테이지 파일 이름은 "01" 같은 두 자리 숫자여야 해요.');
     let def: StageJson = {};
-    try { def = JSON.parse(file(`stages/${s.file}.json`) ?? '{}'); } catch { throw new Error(`stages/${s.file}.json 을 읽을 수 없어요(JSON 형식 확인).`); }
+    try { def = JSON.parse((file(`stages/${s.file}.json`) ?? '{}').replace(/^\uFEFF/, '')); } catch { throw new Error(`stages/${s.file}.json 을 읽을 수 없어요(JSON 형식 확인).`); }
     return parseStage(file(`stages/${s.file}.map.txt`) ?? '', def, sprites);
   });
   const players = { min: Math.max(2, Math.floor(Number(meta.players?.min)) || 2), max: Math.min(30, Math.floor(Number(meta.players?.max)) || 30) };

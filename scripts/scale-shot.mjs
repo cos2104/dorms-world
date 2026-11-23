@@ -1,6 +1,11 @@
 // 저울 화면 확인용: node scripts/scale-shot.mjs [주소] [가로] [세로]
 // 연습 팩의 저울 스테이지를 열고, 실제 확인 키로 구슬을 들고 버리고 나누며 장면마다 찍는다.
 import { chromium } from 'playwright';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+const SHOTS = join(fileURLToPath(new URL('..', import.meta.url)), '.shots') + (process.platform === 'win32' ? '\\' : '/');   // 윈도우·맥 어디서나 같은 폴더
+mkdirSync(SHOTS, { recursive: true });
 const [base = 'http://localhost:5311/world/', w = '1280', h = '800', pack = 'etc/tutorial', stageName = '저울 익히기'] = process.argv.slice(2);
 if (!/^\d{3,4}$/.test(w) || !/^\d{3,4}$/.test(h)) { console.error('가로와 세로는 숫자로 적어 주세요.'); process.exit(1); }
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
@@ -13,7 +18,7 @@ await page.waitForTimeout(1500);
 await page.getByRole('button', { name: '2명' }).first().click().catch(() => {});
 await page.getByRole('button', { name: stageName }).first().click();
 await page.waitForTimeout(1500);
-const shot = async name => { await page.waitForTimeout(350); await page.screenshot({ path: `${new URL('../.shots/', import.meta.url).pathname}scale-${name}-${w}.png` }); };
+const shot = async name => { await page.waitForTimeout(350); await page.screenshot({ path: `${SHOTS}scale-${name}-${w}.png` }); };
 const put = (i, x) => page.evaluate(([i, x]) => { const wd = window.__world(); const p = wd.players[i]; p.x = x; p.y = wd.stage.scales[0].floor - p.h; p.vx = 0; p.vy = 0; }, [i, x]);
 const info = () => page.evaluate(() => { const wd = window.__world(); const s = wd.scales[0], d = wd.stage.scales[0]; return { x: s.x, line: s.line, lines: s.lines, mode: s.mode, tilt: s.tilt, solved: s.solved, note: s.note, pans: d.pans, bins: wd.stage.bins.map(b => b.x), levers: wd.stage.levers.map(l => [l.does, l.x]), active: [...wd.active] }; });
 const enter = async () => { await page.keyboard.press('Enter'); await page.waitForTimeout(120); };

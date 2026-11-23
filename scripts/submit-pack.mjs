@@ -100,11 +100,11 @@ if (args[0] === '--status') {
 const id = args.find(a => !a.startsWith('--')) ?? '';
 const noteAt = args.indexOf('--note'), note = noteAt >= 0 ? String(args[noteAt + 1] ?? '').slice(0, 500) : '';
 if (/^[a-z0-9-]+\/[a-z0-9-]+$/.test(id) && id.split('/').some(part => part.length > 40)) stop('교과와 팩 폴더 이름은 각각 40자까지예요. 폴더 이름(과 pack.json 의 id)을 줄여 주세요.');
-if (!/^[a-z0-9-]{1,40}\/[a-z0-9-]{1,40}$/.test(id)) stop('어느 팩을 보낼지 적어 주세요. 예: npm run submit -- science/digestion\n(운영자에게 한마디를 붙이려면 뒤에 --note "한마디")');
+if (!/^[a-z0-9-]{1,40}\/[a-z0-9-]{1,40}$/.test(id)) stop('어느 팩을 보낼지 적어 주세요. 예: npm run submit -- science/digestion\n(운영자에게 한마디를 붙이려면 뒤에 --note "한마디", 보내지 않고 무엇이 갈지만 보려면 --dry-run)');
 const dir = join('packs', ...id.split('/'));
 if (!existsSync(join(dir, 'pack.json'))) stop(`${dir}/pack.json 이 없어요. 팩 폴더 이름을 확인해 주세요.`);
 let meta;
-try { meta = JSON.parse(readFileSync(join(dir, 'pack.json'), 'utf8')); } catch { stop(`${dir}/pack.json 을 읽지 못했어요. 쉼표와 따옴표를 확인해 주세요.`); }
+try { meta = JSON.parse(readFileSync(join(dir, 'pack.json'), 'utf8').replace(/^\uFEFF/, '')); } catch { stop(`${dir}/pack.json 을 읽지 못했어요. 쉼표와 따옴표를 확인해 주세요.`); }
 if (meta.id !== id) stop(`pack.json 의 id("${meta.id}")가 폴더 이름(${id})과 달라요.`);
 
 // 새 장치를 만들려고 판을 고쳤으면 이 길로는 못 보낸다(팩만 가면 운영 판에서 돌지 않는다)
@@ -132,7 +132,8 @@ const walk = rel => {
     if (st.isDirectory()) { walk(path); continue; }
     if (!FILE_OK.test(path)) { if (/^(stages|sprites)\//.test(path)) stop(`${path} 는 보낼 수 없는 이름이에요(이름은 영문 소문자, 숫자, 줄표로 40자까지). 빠진 채로 가면 게임이 깨지니 이름을 고쳐 주세요.`); skipped.push(path); continue; }
     if (!st.isFile() || st.nlink > 1) stop(`${path} 가 보통 파일이 아니에요(다른 파일로 이어진 링크). 팩에는 파일을 직접 넣어 주세요.`);
-    const body = readFileSync(full, 'utf8');
+    // 윈도우 편집기가 붙이는 BOM 과 CRLF 줄 끝을 걷어 맥에서 만든 팩과 같은 글로 보낸다
+    const body = readFileSync(full, 'utf8').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
     if (Buffer.byteLength(body) > MAX_FILE) stop(`${path} 가 너무 커요(파일 하나는 100KB까지).`);
     if (body.includes('\0') || body.includes('�')) stop(`${path} 가 글 파일이 아니에요. 팩에는 글 파일만 넣어요.`);
     files[path] = body;
@@ -146,6 +147,10 @@ if (names.length > MAX_COUNT) stop(`파일이 너무 많아요(${names.length}�
 if (total > MAX_TOTAL) stop(`팩이 너무 커요(${Math.round(total / 1000)}KB, 300KB까지).`);
 if (skipped.length) say(`  보내지 않는 파일: ${skipped.slice(0, 6).join(', ')}${skipped.length > 6 ? ' 등' : ''}${skipped.some(s => /\.(png|webp)$/.test(s)) ? '\n  (만든 사람 그림은 기본 도름이로 보여요. 사진은 싣지 않아요)' : ''}`);
 
+if (args.includes('--dry-run')) {   // 보내지 않고 무엇이 갈지만 본다(검사는 모두 돌린다)
+  say(`보내지 않고 여기서 멈춰요(--dry-run). 보낼 파일 ${names.length}개, ${Math.max(1, Math.round(total / 1000))}KB:\n${names.map(n => '  ' + n).join('\n')}`);
+  process.exit(0);
+}
 say(`3/3 도름스로 보내는 중이에요(파일 ${names.length}개, ${Math.max(1, Math.round(total / 1000))}KB).`);
 const sent = await withKey(key => call('/api/world/packs', { method: 'POST', key, body: { id, files, ...(note ? { note } : {}) } }));
 const d = sent.data, msg = typeof d.message === 'string' ? plain(d.message, 600) : '';
