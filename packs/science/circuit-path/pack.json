@@ -1,0 +1,43 @@
+{
+  "id": "science/circuit-path",
+  "name": "불 켜진 길",
+  "tagline": "스위치를 밟아 길을 이어요",
+  "family": "과학",
+  "schoolLevels": [
+    "중학교"
+  ],
+  "units": [
+    {
+      "band": "ms2",
+      "subject": "과학",
+      "unit": "전기와 자기"
+    }
+  ],
+  "educationalIntent": "전기와 자기 단원 도입. 스위치를 지키며 길을 잇는 동안, 한 줄로 이어진 길은 하나만 끊겨도 모두 끊기고 갈래로 이어진 길은 하나가 끊겨도 남은 길로 간다는 것을 몸으로 먼저 겪는다.",
+  "description": "스위치를 밟고 있는 동안만 다리가 놓여요. 누가 어느 스위치를 지킬지 정하고, 모두 함께 문으로 들어가요. 둘째와 셋째 스테이지는 생김새가 같지만 스위치가 길을 잇는 방식이 달라요.",
+  "creator": {
+    "nickname": "전남온라인학교김우주",
+    "avatar": null
+  },
+  "players": {
+    "min": 3,
+    "max": 30
+  },
+  "stages": [
+    {
+      "file": "01",
+      "name": "스위치 하나",
+      "difficulty": 1
+    },
+    {
+      "file": "02",
+      "name": "두 스위치, 한 줄 길",
+      "difficulty": 2
+    },
+    {
+      "file": "03",
+      "name": "똑같이 생긴 길",
+      "difficulty": 2
+    }
+  ]
+}

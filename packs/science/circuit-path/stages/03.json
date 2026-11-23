@@ -1,0 +1,36 @@
+{
+  "legend": {
+    "a": {
+      "type": "button",
+      "need": 1,
+      "opens": [
+        "x"
+      ]
+    },
+    "b": {
+      "type": "button",
+      "need": 1,
+      "opens": [
+        "x"
+      ]
+    },
+    "c": {
+      "type": "button",
+      "need": 1,
+      "opens": [
+        "x"
+      ]
+    },
+    "d": {
+      "type": "button",
+      "need": 1,
+      "opens": [
+        "x"
+      ]
+    },
+    "x": {
+      "type": "bridge"
+    }
+  },
+  "hint": "앞 스테이지와 똑같이 생겼어요. 정말 똑같을까요?"
+}

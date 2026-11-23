@@ -1,0 +1,39 @@
+{
+  "legend": {
+    "a": {
+      "type": "button",
+      "need": 1,
+      "opens": [
+        "x"
+      ]
+    },
+    "b": {
+      "type": "button",
+      "need": 1,
+      "opens": [
+        "y"
+      ]
+    },
+    "c": {
+      "type": "button",
+      "need": 1,
+      "opens": [
+        "x"
+      ]
+    },
+    "d": {
+      "type": "button",
+      "need": 1,
+      "opens": [
+        "y"
+      ]
+    },
+    "x": {
+      "type": "bridge"
+    },
+    "y": {
+      "type": "bridge"
+    }
+  },
+  "hint": "스위치가 둘이에요. 어떤 스위치가 길의 어디를 잇는지 살펴봐요."
+}

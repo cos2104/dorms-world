@@ -1,0 +1,22 @@
+{
+  "legend": {
+    "a": {
+      "type": "button",
+      "need": 1,
+      "opens": [
+        "x"
+      ]
+    },
+    "b": {
+      "type": "button",
+      "need": 1,
+      "opens": [
+        "x"
+      ]
+    },
+    "x": {
+      "type": "bridge"
+    }
+  },
+  "hint": "스위치를 밟고 있는 동안만 길이 이어져요. 모두 문으로 들어가요."
+}
