@@ -2,12 +2,13 @@
  * 세계 요약. 방장만 물리를 돌리고, 손님은 방장이 초당 스무 번 보내는 요약을 받아 같은 그림을 그린다.
  * 요약은 화면에 보이는 것 전부와, 방장이 바뀌었을 때 새 방장이 그대로 이어 갈 수 있는 값(속도·저울의 시간들)을 담는다.
  * 저울의 답(x)은 싣지 않는다: 방 정보의 씨앗으로 모두가 같은 식을 뽑는다.
+ * 회로판도 싣지 않는다: 접점 위 도름이 자리로 손님이 같은 계산을 한다(다리가 켜졌는지는 켜진 다리 글자로 온다).
  * 여기는 순수한 계산뿐이다(화면도 연결도 모른다). 받은 요약은 남이 보낸 글이므로 모양을 검사하고 나서 쓴다.
  */
 import { MAX_BOXES, MAX_MARBLES, type Line } from './equation';
 import { colorFor } from './identity';
 import { MAX_SEATS } from './room-rules';
-import { NOTE_LIST, NO_PAD, dividedNote, setPlayerCount, type Carry, type Pad, type World } from './sim';
+import { NOTE_LIST, NO_PAD, dividedNote, setPlayerCount, updateCircuit, type Carry, type Pad, type World } from './sim';
 import { T } from './stage';
 
 /** 방장이 요약을 보내는 간격(물리 걸음 수). 60 / 3 = 초당 20번. */
@@ -115,6 +116,7 @@ export function applyWire(w: World, wire: Wire): boolean {
     q.walk = ((wire.p[o + 6] % 4) + 4) % 4;              // 걷는 그림 번호가 음수가 되지 않게
     q.carry = unpackCarry(wire.p[o + 7], w.scales.length);
   });
+  updateCircuit(w);
   w.scales.forEach((sc, i) => {
     const s = wire.s[i];
     const line = (at: number): Line => [box(s[at]), s[at + 1], box(s[at + 2]), s[at + 3]];
@@ -168,6 +170,7 @@ export function blend(w: World, track: Track, now: number, dt: number): boolean 
   w.crates.forEach((c, i) => { c.x = mix(a.c[i * C], b.c[i * C], 48); c.y = mix(a.c[i * C + 1], b.c[i * C + 1], 90); });
   const h = w.key.holder != null ? w.players[w.key.holder] : null;
   if (h && !w.key.used) { w.key.x = h.x + h.w / 2 - 16; w.key.y = h.y - 26; }
+  updateCircuit(w);   // 이어 그린 자리로 전구를 맞춘다(접점에 막 닿은 순간이 그림과 어긋나지 않게)
   return true;
 }
 

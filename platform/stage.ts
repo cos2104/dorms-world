@@ -2,6 +2,7 @@
  * 스테이지 읽기. 글자 지도(NN.map.txt)와 장치 값(NN.json)을 판이 쓰는 모양으로 바꾼다.
  * 형식 설명은 kit/STAGE_FORMAT.md. 잘못된 곳은 쉬운 한국어로 알려 준다.
  */
+import { buildCircuit, type CircuitDef, type PartKind } from './circuit';
 import { checkSpec, type EquationSpec, type Range } from './equation';
 import type { Sprite } from './sprite';
 
@@ -18,7 +19,11 @@ export type LegendEntry =
   | { type: 'deco'; sprite?: string }
   | { type: 'pan'; scale?: string; side?: 'left' | 'right' }
   | { type: 'bin'; scale?: string }
-  | { type: 'lever'; scale?: string; does?: 'addsub' | 'divide' };
+  | { type: 'lever'; scale?: string; does?: 'addsub' | 'divide' }
+  | { type: 'wire' }
+  | { type: 'source' }
+  | { type: 'lamp'; opens?: string[]; when?: 'bright' | 'on' }
+  | { type: 'contact' };
 
 /** 저울 하나. 식의 수는 범위로 적고 시작할 때마다 뽑는다. */
 export type ScaleJson = {
@@ -65,6 +70,8 @@ export type Stage = {
   decos: Deco[];
   bins: Bin[];
   levers: Lever[];
+  /** 회로판(전선 · 전지 · 전구 · 접점). 없으면 null. */
+  circuit: CircuitDef | null;
   hint: string;
 };
 
@@ -118,7 +125,7 @@ export function parseStage(mapText: string, json: StageJson = {}, sprites: Recor
   if (json.hint != null && (typeof json.hint !== 'string' || json.hint.length > 60)) throw new Error('hint 는 60자까지의 한 줄이에요.');
   const legend = json.legend ?? {};
   if (legend === null || typeof legend !== 'object' || Array.isArray(legend)) throw new Error('legend 는 { "a": { "type": ... } } 모양이어야 해요.');
-  const KEYS: Record<string, string[]> = { button: ['type', 'need', 'opens'], bridge: ['type', 'mode'], crate: ['type', 'need'], sign: ['type', 'texts'], deco: ['type', 'sprite'], pan: ['type', 'scale', 'side'], bin: ['type', 'scale'], lever: ['type', 'scale', 'does'] };
+  const KEYS: Record<string, string[]> = { button: ['type', 'need', 'opens'], bridge: ['type', 'mode'], crate: ['type', 'need'], sign: ['type', 'texts'], deco: ['type', 'sprite'], pan: ['type', 'scale', 'side'], bin: ['type', 'scale'], lever: ['type', 'scale', 'does'], wire: ['type'], source: ['type'], lamp: ['type', 'opens', 'when'], contact: ['type'] };
   const TYPES = Object.keys(KEYS).join(', ');
   for (const [ch, def] of Object.entries(legend) as [string, unknown][]) {
     if (def === null || typeof def !== 'object' || Array.isArray(def)) throw new Error(`legend 의 "${ch}" 는 { "type": "button" } 같은 모양이어야 해요.`);
@@ -201,6 +208,7 @@ export function parseStage(mapText: string, json: StageJson = {}, sprites: Recor
   const buttons: Button[] = [], bridges: Bridge[] = [], crates: CrateDef[] = [], signs: Sign[] = [];
   const bins: Bin[] = [], levers: Lever[] = [], decos: Deco[] = [];
   const panAt: Record<string, { left?: Rect; right?: Rect; floor?: number }> = {};
+  const wiring: { ch: string; kind: 'wire' | PartKind; cells: [number, number][]; opens: string[]; when: 'bright' | 'on' }[] = [];
   const scaleIndex = (ch: string, what: string, name: unknown) => {
     const i = typeof name === 'string' ? scaleNames.indexOf(name) : -1;
     if (i < 0) throw new Error(`${what} "${ch}" 의 scale 에 저울 이름을 적어 주세요(scales 에 있는 이름: ${scaleNames.join(', ') || '없음'}).`);
@@ -274,6 +282,14 @@ export function parseStage(mapText: string, json: StageJson = {}, sprites: Recor
         if (def.type === 'bin') bins.push({ ...rect, scale: si });
         else levers.push({ ...rect, scale: si, does: def.does! });
       }
+    } else if (def.type === 'wire' || def.type === 'source' || def.type === 'contact') {
+      wiring.push({ ch, kind: def.type, cells, opens: [], when: 'bright' });
+    } else if (def.type === 'lamp') {
+      const opens = def.opens ?? [];
+      if (!Array.isArray(opens) || opens.length > 8 || opens.some(o => typeof o !== 'string')) throw new Error(`전구 "${ch}" 의 opens 는 다리 글자 목록이에요(8개까지). 예: ["x"]`);
+      for (const o of opens) if (legend[o]?.type !== 'bridge') throw new Error(`전구 "${ch}" 가 여는 "${o}" 는 bridge 여야 해요.`);
+      if (def.when != null && def.when !== 'bright' && def.when !== 'on') throw new Error(`전구 "${ch}" 의 when 은 "bright"(밝게 켜지면 연다, 기본)나 "on"(어둡게라도 켜지면 연다)이에요.`);
+      wiring.push({ ch, kind: 'lamp', cells, opens, when: def.when === 'on' ? 'on' : 'bright' });
     } else {
       throw new Error(`"${ch}" 의 type 을 모르겠어요. ${TYPES} 가운데 하나예요.`);
     }
@@ -293,7 +309,9 @@ export function parseStage(mapText: string, json: StageJson = {}, sprites: Recor
   for (const d of [...bins, ...levers]) for (const sc of scales) for (const pan of sc.pans) {
     if (d.x + d.w + T > pan.x && d.x - T < pan.x + pan.w) throw new Error(`통과 레버는 접시 밑이나 바로 옆 칸에 둘 수 없어요(지도 ${d.y / T + 1}번째 줄 ${d.x / T + 1}번째 칸). 접시에서 한 칸 넘게 띄워 주세요.`);
   }
-  for (const b of bridges) if (!buttons.some(x => x.opens.includes(b.ch)) && !scales.some(x => x.opens.includes(b.ch))) throw new Error(`다리 "${b.ch}" 를 여는 단추나 저울이 없어요.`);
+  const circuit = buildCircuit(wiring, (c, r) => at(c, r) === '#');
+  const lampOpens = circuit ? circuit.lamps.flatMap(i => circuit.parts[i].opens) : [];
+  for (const b of bridges) if (!buttons.some(x => x.opens.includes(b.ch)) && !scales.some(x => x.opens.includes(b.ch)) && !lampOpens.includes(b.ch)) throw new Error(`다리 "${b.ch}" 를 여는 단추나 저울이 없어요(전구로도 열 수 있어요).`);
   const hint = json.hint ?? '';
-  return { cols, rows, solid, spawn, key, door, buttons, bridges, crates, signs, scales, decos, bins, levers, hint };
+  return { cols, rows, solid, spawn, key, door, buttons, bridges, crates, signs, scales, decos, bins, levers, circuit, hint };
 }

@@ -2,6 +2,7 @@
  * '깰 수 있는지' 봇. 판(platform/sim.ts)을 그대로 굴려 스테이지를 2명·8명·30명으로 끝까지 깨 본다.
  * 팩에는 아무것도 더 적지 않아도 된다(팩은 자료만). 봇은 판이 아는 장치만 쓴다:
  *   단추에 필요한 만큼 서 있기 · 상자 밀기 · 저울 풀기(양쪽에 같은 일) · 친구 머리 딛기(한 명) · 열쇠 · 문.
+ *   회로판(접점에 서서 전구 켜기)은 아직 못 다룬다: 전구가 여는 다리가 있는 스테이지에서 막히면 '확인 못 함'으로 알린다.
  * 할 일의 차례는 봇이 찾는다: 해 볼 수 있는 일을 하나씩 실제로 굴려 보고, 나아지면 그 뒤를 잇고 막히면 되돌아간다.
  * 친구 둘 이상을 쌓아야 닿는 자리처럼 봇이 못 하는 길만 남으면 '확인 못 함'으로 알린다(통과·실패로 꾸미지 않는다).
  * 브로콜리 검사(아무렇게나 누르는 봇이 깨면 안 된다)와는 목적이 다르다: 이것은 '풀 수 있게 만들어졌나'만 본다.
@@ -664,6 +665,9 @@ export function playStage(stage: Stage, people: number, opts: PlayOpts = {}): St
   }
   const s = best.s;
   const where = whereOf(s);
+  // 봇은 아직 회로판(접점에 서서 전구 켜기)을 다루지 못한다. 전구가 여는 다리가 있는 스테이지에서 막히면 못 깬다고 단정하지 않는다
+  const lampBridges = s.w.stage.circuit ? s.w.stage.circuit.lamps.flatMap(i => s.w.stage.circuit!.parts[i].opens) : [];
+  if (lampBridges.length) return finish('unknown', `${people}명: ${whereOf(s)}. 봇은 아직 회로판(접점에 서서 전구 켜기)을 다루지 못해요. 이 인원은 사람이 직접 깨 보세요.`, s);
   if (needsTower(s)) return finish('unknown', `${people}명: ${where}. 친구 둘 이상을 쌓아야 닿는 자리가 있는데, 봇은 친구 한 명만 딛을 수 있어요. 이 인원은 사람이 직접 깨 보세요.`, s);
   const did = s.did.length ? ` 봇이 한 일: ${s.did.join(', ')}.` : '';
   const why = best.why.length ? ` 막힌 곳: ${best.why.slice(0, 4).join(' / ')}.` : '';
