@@ -21,9 +21,10 @@ const BANNED_NAMES = new Set([
   'eval', 'Function', 'Reflect', 'Proxy', 'require', 'process', 'module', 'exports',
   'Date', 'performance', 'crypto', 'setTimeout', 'setInterval', 'requestAnimationFrame', 'queueMicrotask', 'setImmediate',
   'localStorage', 'sessionStorage', 'indexedDB', 'caches', 'cookieStore', 'alert', 'confirm', 'prompt', 'open', 'close',
+  'Object', 'Symbol', 'WeakRef', 'FinalizationRegistry', 'Atomics', 'SharedArrayBuffer', 'arguments', 'this', 'super',
 ]);
 /** 쓸 수 없는 속성 이름(생성자 사슬·프로토타입·난수). */
-const BANNED_PROPS = new Set(['constructor', '__proto__', 'prototype', 'random', 'call', 'apply', 'bind', '__defineGetter__', '__defineSetter__', '__lookupGetter__']);
+const BANNED_PROPS = new Set(['constructor', '__proto__', 'prototype', 'random', 'call', 'apply', 'bind', '__defineGetter__', '__defineSetter__', '__lookupGetter__', '__lookupSetter__', 'getPrototypeOf', 'setPrototypeOf', 'getOwnPropertyDescriptor', 'getOwnPropertyDescriptors', 'defineProperty', 'caller', 'callee']);
 
 /** 한 파일을 문법 나무로 훑어 어긋난 곳을 모은다. */
 export function problems(src: string): string[] {
@@ -44,9 +45,15 @@ export function problems(src: string): string[] {
       if (!isMemberName) out.push(`${line(n)}줄: '${n.text}' 은 쓸 수 없어요(바깥·시간·난수·코드 만들기)`);
     }
     if (ts.isPropertyAccessExpression(n) && BANNED_PROPS.has(n.name.text)) out.push(`${line(n)}줄: '.${n.name.text}' 은 쓸 수 없어요`);
+    if (n.kind === ts.SyntaxKind.ThisKeyword || n.kind === ts.SyntaxKind.SuperKeyword) out.push(`${line(n)}줄: this, super 는 쓸 수 없어요`);
+    // 구조 분해로 속성을 꺼내는 것({ constructor } = x)과 금지 이름을 글자로 적는 것도 막는다
+    if (ts.isObjectBindingPattern(n)) out.push(`${line(n)}줄: { a } = x 처럼 꺼내 쓰는 것은 쓸 수 없어요. ctx.vars 처럼 점으로 적어 주세요`);
+    if (ts.isStringLiteralLike(n) && (BANNED_PROPS.has(n.text) || BANNED_NAMES.has(n.text))) out.push(`${line(n)}줄: 글자 '${n.text}' 는 쓸 수 없어요`);
+    if (ts.isComputedPropertyName(n)) out.push(`${line(n)}줄: [ ] 로 이름을 만드는 속성은 쓸 수 없어요`);
     // [ ] 로 고르는 것은 숫자 칸(ctx.vars[k], 배열[0])만. 변수에 담은 글자로 속성을 고르는 우회를 막는다
-    if (ts.isElementAccessExpression(n) && !ts.isNumericLiteral(n.argumentExpression) && !(ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'vars'))
-      out.push(`${line(n)}줄: [ ] 로는 숫자 칸(ctx.vars[k] 같은 것)만 고를 수 있어요. 속성은 점(.)으로 이름을 적어 주세요`);
+    const ctxVars = (e: ts.Expression) => ts.isPropertyAccessExpression(e) && e.name.text === 'vars' && ts.isIdentifier(e.expression) && e.expression.text === 'ctx';
+    if (ts.isElementAccessExpression(n) && !ctxVars(n.expression))
+      out.push(`${line(n)}줄: [ ] 로는 ctx.vars 의 칸(ctx.vars[0] 같은 것)만 고를 수 있어요. 속성은 점(.)으로 이름을 적어 주세요`);
     if (ts.isMetaProperty(n) || n.kind === ts.SyntaxKind.ImportKeyword && !ts.isImportDeclaration(n.parent)) out.push(`${line(n)}줄: import.meta 나 import() 는 쓸 수 없어요`);
     if (ts.isWhileStatement(n) || ts.isDoStatement(n) || (ts.isForStatement(n) && !n.condition)) out.push(`${line(n)}줄: while, do, 끝 조건 없는 for 는 쓸 수 없어요(판이 멈출 수 있어요). for (let k = 0; k < 10; k++) 처럼 횟수를 정해 주세요`);
     if (ts.isNewExpression(n)) out.push(`${line(n)}줄: new 로 무언가를 만들 수 없어요`);
@@ -91,5 +98,10 @@ describe('검사 그물이 실제로 거른다', () => {
     ['난수', "const r = Math.random();"],
     ['new', "const x = new Array(1e9);"],
     ['type 아닌 import', "import { BEHAVIORS } from '../behavior';"],
+    ['구조 분해로 constructor', "const f = (x: any) => { const { constructor: c } = x.isOn; return c; };"],
+    ['Object 로 프로토타입 꺼내기', "const f = (x: any) => Object.getPrototypeOf(x);"],
+    ['글자로 적은 금지 이름', "const k = 'constructor';"],
+    ['ctx 가 아닌 vars 고르기', "const f = (o: any, k: number) => o.vars[k];"],
+    ['this', "function t(this: any) { return this; }"],
   ])('%s 은 걸린다', (_, src) => { expect(problems(src).length).toBeGreaterThan(0); });
 });
